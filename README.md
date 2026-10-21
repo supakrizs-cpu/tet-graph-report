@@ -3,7 +3,8 @@
 HTML ไฟล์เดียว: อัปโหลด Excel → ตาราง + กราฟรายวัน/สรุปปี → คัดลอกรูปวางใน LINE
 
 - ใช้ในเครื่อง: เปิด `dist/TET-กราฟรายงาน.html` (ไม่ต้องมีอินเทอร์เน็ต)
-- ออนไลน์: GitHub Pages เสิร์ฟ `index.html` (ไฟล์เดียวกัน)
+- ออนไลน์: https://supakrizs-cpu.github.io/tet-graph-report/ (GitHub Pages เสิร์ฟ `index.html` ไฟล์เดียวกัน)
+- **จะแก้ต่อ อ่าน `HANDOFF.md` ก่อน** (กฎสั้นสำหรับ AI อยู่ใน `AGENTS.md`)
 - ข้อมูลเก็บในเบราว์เซอร์ของแต่ละเครื่อง (localStorage) + ไฟล์สำรอง JSON — **repo นี้ไม่มีข้อมูลจริง ห้าม commit ไฟล์ Excel/JSON ข้อมูล**
 
 ## แก้ไขโปรแกรม
