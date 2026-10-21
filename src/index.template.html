@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>กราฟรายงาน TET</title>
+<style>/*CSS*/</style>
+</head>
+<body>
+<header class="top">
+  <h1>📊 กราฟรายงาน TET</h1>
+  <nav class="tabs" id="tabs">
+    <button data-v="upload" class="on">อัปโหลด</button>
+    <button data-v="grid">ตารางเดือน</button>
+    <button data-v="charts">กราฟรายวัน</button>
+    <button data-v="year">สรุปปี</button>
+    <button data-v="settings">ตั้งค่า</button>
+  </nav>
+  <div class="ctl">
+    <label>เดือน</label><select id="selMonth"></select>
+    <label>ข้อมูลถึงวันที่</label><select id="selDay"></select>
+  </div>
+</header>
+<main>
+  <!-- อัปโหลด -->
+  <section class="view on" id="v-upload">
+    <div class="drop" id="drop">
+      <b>ลากไฟล์ Excel มาวางที่นี่</b> หรือคลิกเพื่อเลือก (เลือกหลายไฟล์พร้อมกันได้)
+      <div class="hint" style="margin-top:6px">รองรับ: ไฟล์ "xx.xx.xxxx สรุป.xlsx" (เปิดบิลสั่งย้อม) · ไฟล์ "ค้างส่ง xx.xx.xxxx.xlsx" · ไฟล์ "สรุปปี2026.xlsx" (นำเข้าย้อนหลัง)</div>
+      <input type="file" id="fileIn" multiple accept=".xlsx,.xls,.xlsm" hidden>
+    </div>
+    <div id="pvList"></div>
+    <div class="row" id="pvActions" style="display:none;margin-top:6px">
+      <button class="btn pri" id="btnSaveAll">บันทึกทั้งหมด</button>
+      <button class="btn" id="btnClearPv">ยกเลิก</button>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="pad">
+      <h2 class="sec">กรอกมือวันนี้</h2>
+      <div class="hint">ช่องที่ไม่มีในไฟล์ — กรอกแล้วกดบันทึก (แก้ย้อนหลังได้ที่แท็บ "ตารางเดือน")</div>
+      <div class="row" style="margin-top:10px" id="quickForm"></div>
+    </div></div>
+  </section>
+
+  <!-- ตารางเดือน -->
+  <section class="view" id="v-grid">
+    <div class="legendbox">
+      <span><i style="background:var(--file)"></i>มาจากไฟล์</span>
+      <span><i style="background:var(--edit)"></i>แก้มือทับค่าจากไฟล์</span>
+      <span><i style="background:#fff"></i>กรอกมือ</span>
+      <span><i style="background:var(--hol)"></i>วันหยุด (ไม่นับเป้า)</span>
+      <span>ช่อง "หยุด" ติ๊กเพื่อตั้ง/ยกเลิกวันหยุด</span>
+    </div>
+    <div class="gridwrap"><table class="grid" id="grid"></table></div>
+  </section>
+
+  <!-- กราฟรายวัน -->
+  <section class="view" id="v-charts">
+    <div class="subtabs" id="chartTabs">
+      <button data-s="A" class="on">แบบ a เหมือน Excel</button>
+      <button data-s="B">แบบ b อ่านง่าย</button>
+      <button data-s="M">รูปรวม 4 กราฟ (มือถือ)</button>
+      <span style="flex:1"></span>
+      <button data-dlall>ดาวน์โหลดทุกรูปของแบบนี้</button>
+    </div>
+    <div id="chartsA"></div>
+    <div id="chartsB" style="display:none"></div>
+    <div id="chartsM" style="display:none"></div>
+  </section>
+
+  <!-- สรุปปี -->
+  <section class="view" id="v-year">
+    <div class="row" style="margin-bottom:10px"><label>ปี</label><select id="selYear" class="btn"></select></div>
+    <div id="yearBox"></div>
+  </section>
+
+  <!-- ตั้งค่า -->
+  <section class="view" id="v-settings"><div id="setBox"></div></section>
+</main>
+<div class="toast" id="toast"></div>
+<script>/*LIB_XLSX*/</script>
+<script>/*LIB_CHART*/</script>
+<script>/*LIB_DL*/</script>
+<script>/*LIB_H2C*/</script>
+<script>/*DEFAULTS*/</script>
+<script>/*APP*/</script>
+</body>
+</html>

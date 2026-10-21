@@ -1,0 +1,5 @@
+test/
+*.xlsx
+*.json
+!package.json
+.DS_Store
