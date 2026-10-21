@@ -1,0 +1,6 @@
+{
+  // Cloudflare Workers (static assets) — push ไป main แล้ว Cloudflare deploy โฟลเดอร์ public/ อัตโนมัติ
+  "name": "tet-graph-report",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "./public" }
+}

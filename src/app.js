@@ -28,12 +28,68 @@ const DEFAULT_TARGETS = {order:44, ship:42, raw:45, rep1:1.1, rep2:1.4};
 const TH_DOW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 const TH_MON = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 
-/* ---------------- 2. ที่เก็บข้อมูล (สลับเป็น server/Firebase ได้ที่นี่ที่เดียว) ---------------- */
+/* ---------------- 2. ที่เก็บข้อมูล ----------------
+   โหมดเครื่อง (file:// หรือ GitHub Pages): localStorage key 'tet-graph-report-v1'
+   โหมดออนไลน์ (https + supabase-config.js): Supabase ตาราง graph_report
+     1 แถว/เดือน key='m:YYYY-MM' + 1 แถว key='maps' · แคชในเครื่อง key '…-online-cache'
+   ------------------------------------------------------------------------------- */
 const STORE_KEY = 'tet-graph-report-v1';
+const SB_CFG = window.SB_CONFIG || null;
+const IS_SB = location.protocol==='https:' && !!SB_CFG && !!window.supabase && !/ใส่-/.test((SB_CFG.url||'')+(SB_CFG.key||''));
+const SB_TABLE = (SB_CFG && SB_CFG.table) || 'graph_report';
+const LOCAL_KEY = IS_SB ? STORE_KEY+'-online-cache' : STORE_KEY;
+let SB=null, SB_USER='';
+const SYNC={state:IS_SB?'loading':'local', at:null, err:''};
 const Storage = {
-  load(){ try{ const s=localStorage.getItem(STORE_KEY); return s?JSON.parse(s):null; }catch(e){ return null; } },
-  save(state){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); return true; }catch(e){ toast('บันทึกในเบราว์เซอร์ไม่ได้ — กด "บันทึกไฟล์สำรอง (JSON)" ในหน้าตั้งค่า'); return false; } },
+  load(){ try{ const s=localStorage.getItem(LOCAL_KEY); return s?JSON.parse(s):null; }catch(e){ return null; } },
+  save(state){
+    let ok=true;
+    try{ localStorage.setItem(LOCAL_KEY, JSON.stringify(state)); }catch(e){ ok=false; if(!IS_SB) toast('บันทึกในเบราว์เซอร์ไม่ได้ — กด "บันทึกไฟล์สำรอง (JSON)" ในหน้าตั้งค่า'); }
+    if(IS_SB && SB_USER) Cloud.queue();
+    return ok;
+  },
 };
+const Cloud = {
+  synced:{}, timer:null, busy:false,
+  rowsOf(st){ const r={maps:st.maps}; Object.entries(st.months).forEach(([ym,m])=>r['m:'+ym]=m); return r; },
+  async pull(){
+    const {data,error}=await SB.from(SB_TABLE).select('key,data');
+    if(error) throw new Error(error.message);
+    this.synced={}; if(!data||!data.length) return null;
+    const st=freshState();
+    data.forEach(row=>{ this.synced[row.key]=JSON.stringify(row.data);
+      if(row.key==='maps') st.maps=row.data; else if(row.key.startsWith('m:')) st.months[row.key.slice(2)]=row.data; });
+    return st;
+  },
+  queue(){ clearTimeout(this.timer); setSync('saving'); this.timer=setTimeout(()=>{this.timer=null;this.push();},700); },
+  async push(){
+    if(this.busy){ this.queue(); return; }
+    const ch=Object.entries(this.rowsOf(S)).filter(([k,v])=>JSON.stringify(v)!==this.synced[k])
+      .map(([k,v])=>({key:k,data:v,updated_at:new Date().toISOString(),updated_by:SB_USER}));
+    if(!ch.length){ setSync('ok'); return; }
+    this.busy=true;
+    try{ const {error}=await SB.from(SB_TABLE).upsert(ch); if(error) throw new Error(error.message);
+      ch.forEach(r=>this.synced[r.key]=JSON.stringify(r.data)); setSync('ok'); }
+    catch(e){ setSync('err',e.message); }
+    finally{ this.busy=false; }
+  },
+  pending(){ return !!this.timer || this.busy || SYNC.state==='err'; },
+};
+function setSync(state,err){
+  SYNC.state=state; if(state==='ok') SYNC.at=new Date(); SYNC.err=err||'';
+  const el=document.getElementById('sync'); if(!el) return;
+  const t=SYNC.at?`${pad2(SYNC.at.getHours())}:${pad2(SYNC.at.getMinutes())}`:'';
+  el.innerHTML={
+    local:'<span title="ข้อมูลเก็บในเบราว์เซอร์ของเครื่องนี้">💾 เก็บในเครื่องนี้</span>',
+    loading:'⏳ กำลังโหลด…',
+    saving:`⏳ กำลังบันทึก… <span class="hint">👤 ${esc(SB_USER)}</span>`,
+    ok:`✅ ออนไลน์ · 👤 ${esc(SB_USER)} · ${t} <button class="btn sm" data-sync="reload" title="โหลดข้อมูลล่าสุดจากเซิร์ฟเวอร์">🔄</button> <button class="btn sm" data-sync="out">ออกจากระบบ</button>`,
+    err:`<span style="color:var(--bad)">⚠ บันทึกขึ้นเซิร์ฟเวอร์ไม่สำเร็จ: ${esc(SYNC.err)}</span> <button class="btn sm" data-sync="retry">ลองใหม่</button>`,
+  }[state]||'';
+  el.querySelectorAll('[data-sync]').forEach(b=>b.onclick=()=>{
+    const a=b.dataset.sync; if(a==='reload') reloadCloud(); if(a==='retry') Cloud.push(); if(a==='out') sbLogout();
+  });
+}
 function freshState(){ return {v:1, maps:JSON.parse(JSON.stringify(DEFAULT_MAPS)), months:{}, ui:{}}; }
 let S = Storage.load() || freshState();
 if(!S.maps) S.maps = JSON.parse(JSON.stringify(DEFAULT_MAPS));
@@ -665,7 +721,7 @@ function renderSettings(){
       <button class="btn" id="bXlsx">Export Excel ทั้งปี ${ym.slice(0,4)}</button>
       <button class="btn danger" id="bWipe">ลบข้อมูลเดือน ${ymLabel(ym)}</button>
     </div>
-    <div class="hint" style="margin-top:8px">ข้อมูลเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น — ย้ายเครื่อง/สำรองข้อมูลให้ใช้ไฟล์ JSON (แนะนำบันทึกไว้ในโฟลเดอร์แชร์ทุกสิ้นเดือน)</div>
+    <div class="hint" style="margin-top:8px">${IS_SB?'โหมดออนไลน์ — ข้อมูลเก็บบนเซิร์ฟเวอร์ (Supabase) ทุกเครื่องที่ล็อกอินเห็นชุดเดียวกัน · ไฟล์ JSON ใช้สำรอง/ย้ายข้อมูลจากไฟล์ในเครื่องขึ้นออนไลน์ (โหลด JSON = เขียนทับข้อมูลออนไลน์ของเดือนที่อยู่ในไฟล์)':'ข้อมูลเก็บในเบราว์เซอร์ของเครื่องนี้เท่านั้น — ย้ายเครื่อง/สำรองข้อมูลให้ใช้ไฟล์ JSON (แนะนำบันทึกไว้ในโฟลเดอร์แชร์ทุกสิ้นเดือน)'}</div>
   </div></div>
 
   <details class="card"><summary>ตารางจับคู่ (ใช้ตอนอ่านไฟล์สรุป)</summary><div class="pad"><div class="cols">
@@ -741,6 +797,39 @@ function exportYear(y){
   XLSX.writeFile(wb,`สรุปปี${y}-จากโปรแกรม.xlsx`);
 }
 
-/* ---------------- 15. เริ่ม ---------------- */
-fillMonthSel();
-renderQuick();
+/* ---------------- 15. เริ่ม + ออนไลน์ ---------------- */
+function sbLogin(){
+  return new Promise(async res=>{
+    try{ const {data}=await SB.auth.getSession(); if(data&&data.session){ SB_USER=(data.session.user.email||'').split('@')[0]; return res(); } }catch(e){}
+    const box=$('#login'); box.hidden=false; setTimeout(()=>$('#lgU').focus(),50);
+    const go=async()=>{
+      const u=$('#lgU').value.trim().toLowerCase(), p=$('#lgP').value; if(!u||!p) return;
+      const email=u.includes('@')?u:`${u}@${SB_CFG.domain||'tet.local'}`;
+      $('#lgMsg').textContent='กำลังเข้าสู่ระบบ…';
+      try{ const {data,error}=await SB.auth.signInWithPassword({email,password:p});
+        if(error) throw error; SB_USER=(data.user.email||'').split('@')[0]; box.hidden=true; res(); }
+      catch(e){ $('#lgMsg').textContent='เข้าสู่ระบบไม่ได้: ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'; }
+    };
+    $('#lgBtn').onclick=go; $('#lgP').onkeydown=e=>{ if(e.key==='Enter') go(); };
+  });
+}
+async function sbLogout(){ try{ localStorage.removeItem(LOCAL_KEY); await SB.auth.signOut(); }catch(e){} location.reload(); }
+async function reloadCloud(){
+  if(Cloud.pending()){ toast('รอบันทึกให้เสร็จก่อน แล้วค่อยโหลดใหม่'); return; }
+  setSync('loading');
+  try{
+    const st=await Cloud.pull();
+    if(st){ st.ui=S.ui||{}; S=st; try{ localStorage.setItem(LOCAL_KEY, JSON.stringify(S)); }catch(e){} }
+    else if(Object.keys(S.months).length){ Cloud.queue(); }
+    setSync('ok'); fillMonthSel(); refresh();
+  }catch(e){ setSync('err', e.message); }
+}
+async function boot(){
+  fillMonthSel(); renderQuick(); setSync(SYNC.state);
+  if(!IS_SB) return;
+  SB=window.supabase.createClient(SB_CFG.url, SB_CFG.key);
+  await sbLogin(); await reloadCloud();
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && SYNC.state==='ok' && !Cloud.pending()) reloadCloud(); });
+  window.addEventListener('beforeunload',e=>{ if(Cloud.timer||Cloud.busy){ e.preventDefault(); e.returnValue=''; } });
+}
+boot();

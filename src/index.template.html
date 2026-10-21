@@ -19,6 +19,7 @@
   <div class="ctl">
     <label>เดือน</label><select id="selMonth"></select>
     <label>ข้อมูลถึงวันที่</label><select id="selDay"></select>
+    <span id="sync" class="sync"></span>
   </div>
 </header>
 <main>
@@ -77,6 +78,14 @@
   <section class="view" id="v-settings"><div id="setBox"></div></section>
 </main>
 <div class="toast" id="toast"></div>
+<div class="login" id="login" hidden><div class="lbox">
+  <h2>📊 กราฟรายงาน TET</h2><div class="hint">เข้าสู่ระบบด้วยบัญชีเดียวกับ Sale Order Tracker</div>
+  <div class="field"><label>ชื่อผู้ใช้</label><input id="lgU" autocomplete="username"></div>
+  <div class="field"><label>รหัสผ่าน</label><input id="lgP" type="password" autocomplete="current-password"></div>
+  <button class="btn pri" id="lgBtn" style="width:100%">เข้าสู่ระบบ</button>
+  <div class="hint" id="lgMsg" style="margin-top:8px;color:var(--bad)"></div>
+</div></div>
+<script>if(location.protocol==="https:")document.write('<script src="supabase.js"><\/script><script src="supabase-config.js"><\/script>')</script>
 <script>/*LIB_XLSX*/</script>
 <script>/*LIB_CHART*/</script>
 <script>/*LIB_DL*/</script>

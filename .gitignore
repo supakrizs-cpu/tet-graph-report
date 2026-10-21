@@ -3,3 +3,4 @@ test/
 *.json
 !package.json
 .DS_Store
+online-test.png

@@ -30,6 +30,11 @@ main{padding:16px}
 h2.sec{font-size:16px;margin:0 0 10px}
 .hint{color:var(--ink2);font-size:13px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sync{font-size:13px;display:inline-flex;gap:6px;align-items:center}
+.login{position:fixed;inset:0;background:rgba(244,244,242,.97);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
+.login[hidden]{display:none}
+.login .lbox{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px;width:100%;max-width:340px;display:grid;gap:10px}
+.login h2{margin:0;font-size:19px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:9px 16px;border-radius:8px;opacity:0;transition:.2s;pointer-events:none;z-index:99}
 .toast.on{opacity:1}
 .subtabs{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}

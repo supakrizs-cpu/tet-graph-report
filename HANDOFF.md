@@ -8,19 +8,28 @@
 ## 0. สรุปสั้น
 
 - **คืออะไร:** HTML ไฟล์เดียว ให้หัวหน้าฝ่าย SALE/ขนส่ง/วางแผน ของโรงย้อม TET อัปโหลดไฟล์ Excel รายวัน → ได้ตาราง + กราฟ 4 ตัว → กด "คัดลอกรูป" วางใน LINE ส่งผู้บริหาร (แทนการทำ Excel แล้วแคปจอ)
-- **เว็บ:** https://supakrizs-cpu.github.io/tet-graph-report/ (GitHub Pages จาก `main` / root → เสิร์ฟ `index.html`)
-- **ใช้ในเครื่อง:** `dist/TET-กราฟรายงาน.html` (ผู้ใช้เก็บไว้ที่ `D:\TET กราฟรายงงาน\TET-กราฟรายงาน.html`) — ไม่ต้องมีเน็ต
-- **ข้อมูล:** เก็บใน `localStorage` ของเบราว์เซอร์แต่ละเครื่อง key `tet-graph-report-v1` (**ห้ามเปลี่ยนชื่อ key** ข้อมูลผู้ใช้จะหาย) + ไฟล์สำรอง JSON
+มี 3 ช่องทาง — **ไฟล์ HTML เดียวกัน** โหมดเลือกเองตามที่เปิด:
+
+| ช่องทาง | ลิงก์/ไฟล์ | โหมด | เก็บข้อมูลที่ |
+|---|---|---|---|
+| **ออนไลน์ (หลัก)** | `https://tet-graph-report.supakrizs.workers.dev` (Cloudflare Workers ← `public/`) | ออนไลน์ ต้องล็อกอิน | Supabase ตาราง `graph_report` (ทุกเครื่องเห็นชุดเดียวกัน) |
+| GitHub Pages | https://supakrizs-cpu.github.io/tet-graph-report/ (← `index.html` ที่ root) | เครื่อง | localStorage `tet-graph-report-v1` |
+| ไฟล์ในเครื่อง | `dist/TET-กราฟรายงาน.html` (ผู้ใช้วางที่ `D:\TET กราฟรายงงาน\`) | เครื่อง ไม่ต้องมีเน็ต | localStorage `tet-graph-report-v1` |
+
+- **ห้ามเปลี่ยนชื่อ localStorage key** (ข้อมูลผู้ใช้จะหาย) · ข้อมูลโหมดเครื่องกับออนไลน์แยกกัน ย้ายด้วยไฟล์ JSON (ตั้งค่า → บันทึก/โหลดไฟล์สำรอง)
+- โหมดออนไลน์ทำงานเมื่อ: เปิดผ่าน `https:` + โหลด `supabase.js` และ `supabase-config.js` สำเร็จ (ตัวแปร `IS_SB`) — GitHub Pages ไม่มีสองไฟล์นี้ที่ root จึงเป็นโหมดเครื่อง
 - **ภาษา UI:** ไทยอย่างเดียว
 - **repo เป็น public** → ห้าม commit ไฟล์ Excel/JSON ที่มีข้อมูลจริง (`.gitignore` กัน `*.xlsx`, `*.json` ไว้แล้ว)
 
 ## 1. วิธีแก้ / build / deploy
 
 ```
-แก้ไฟล์ใน src/  →  python build.py  →  commit + push main  →  GitHub Pages อัปเดตเอง (~1–2 นาที)
+แก้ไฟล์ใน src/  →  python build.py  →  commit + push main  →  Cloudflare + GitHub Pages อัปเดตเอง (~1–2 นาที)
 ```
 
-- **ห้ามแก้ `index.html` หรือ `dist/*.html` ตรง ๆ** — เป็นไฟล์ที่ build ออกมา จะถูกเขียนทับ
+- **ห้ามแก้ `index.html`, `public/index.html`, `dist/*.html` ตรง ๆ** — build ออกมาจาก `src/` (commit ทุกไฟล์ เพราะ Cloudflare/Pages ไม่ได้ build ให้)
+- Cloudflare: Workers Builds ผูก repo นี้ branch `main`, build command ว่าง, deploy command `npx wrangler deploy` (`wrangler.jsonc` → assets `./public`) — แบบเดียวกับ repo `tet-sale`
+- push แล้วตรวจที่ Cloudflare → Workers & Pages → tet-graph-report → Deployments ต้อง Ready/Active · พังให้ Rollback เวอร์ชันก่อน
 - `build.py` แทนที่ placeholder ใน `src/index.template.html`: `/*CSS*/ /*LIB_XLSX*/ /*LIB_CHART*/ /*LIB_DL*/ /*LIB_H2C*/ /*DEFAULTS*/ /*APP*/` (ต้องมีจุดละ 1 ครั้ง, ใช้ `str.replace` ของ Python — ปลอดภัยกับ `$&` ในไลบรารี)
 - หลัง build ส่งไฟล์ `dist/TET-กราฟรายงาน.html` ให้ผู้ใช้วางทับใน `D:\TET กราฟรายงงาน\` ด้วย (ผู้ใช้ใช้ทั้งในเครื่องและบนเว็บ)
 
@@ -33,6 +42,10 @@
 | `vendor/` | SheetJS 0.18.5, Chart.js 4.4.4, chartjs-plugin-datalabels 2.2.0, html2canvas 1.4.1 (ฝังในไฟล์ ไม่ใช้ CDN) |
 | `build.py` | รวมเป็นไฟล์เดียว → `dist/TET-กราฟรายงาน.html` + `index.html` |
 | `.nojekyll` | ให้ GitHub Pages ไม่ประมวลผล Jekyll |
+| `public/` | ไฟล์ขึ้น Cloudflare: `index.html` (build), `supabase.js` (supabase-js 2.117.2 UMD — คัดลอกจาก tet-sale), `supabase-config.js`, `_headers` |
+| `wrangler.jsonc` | ตั้งค่า Cloudflare Workers (static assets) |
+| `supabase-setup.sql` | สร้างตาราง `graph_report` + RLS (ผู้ใช้รันเองใน SQL Editor, รันซ้ำได้) |
+| `tests/` | `online_test.py` + `mock-supabase.js` — ทดสอบโหมดออนไลน์ด้วย Supabase จำลอง |
 
 ## 2. ไฟล์ Excel ที่ระบบอ่าน (ตรวจชนิดจาก "หัวคอลัมน์" ไม่ใช่ชื่อไฟล์ ยกเว้นข้อ ค)
 
@@ -88,7 +101,7 @@
 | ส่วน | เนื้อหา |
 |---|---|
 | 1 | `FIELDS` ฟิลด์รายวัน 16 ตัว (`src`: order/pend/manual) · `DEFAULT_TARGETS` |
-| 2 | `Storage` adapter (localStorage) — **จุดเดียวที่ต้องแก้ถ้าจะย้ายไป Supabase/Firebase** |
+| 2 | `Storage` (localStorage/แคช) + `Cloud` (ซิงก์ Supabase: `pull`, `queue` debounce 700ms, `push` upsert เฉพาะแถวที่เปลี่ยน) + `setSync` (สถานะมุมขวาบน) |
 | 3 | ตัวช่วยวันที่/ตัวเลข (`toDate`, `dateFromFilename`, `fmt`…) |
 | 4 | `getMonth`, `isHoliday`, `workDaysOf`, `monthTarget` |
 | 5 | `buildLookups()` ตารางจับคู่ |
@@ -101,7 +114,7 @@
 | 12 | สรุปปี `renderYear` (เดือนไม่ครบ: % เทียบเป้าสะสมถึงวันนั้น) |
 | 13 | ตั้งค่า `renderSettings` (เป้า, JSON, Export, ตารางจับคู่) · `confirmBox` (กดซ้ำยืนยัน ไม่ใช้ `confirm()`) |
 | 14 | `exportYear` → Excel รูปแบบคอลัมน์เดียวกับ `สรุปปี2026.xlsx` (A–AU) |
-| 15 | init |
+| 15 | `sbLogin` (ชื่อผู้ใช้ → `ชื่อ@tet.local`), `sbLogout` (ล้างแคช), `reloadCloud` (ดึงใหม่ทั้งหมด; ทำเองเมื่อสลับกลับมาที่แท็บ), `boot` |
 
 **State (`S`):**
 ```js
@@ -114,6 +127,9 @@
      d:{"2026-10-20":{white:..,…, _src:{white:'file'|'import'|'edit'|'manual'}}} } },
   ui:{month} }
 ```
+**Supabase:** ตาราง `graph_report(key, data jsonb, updated_at, updated_by)` — แถว `maps` = `S.maps`, แถว `m:YYYY-MM` = `S.months[ym]` (`S.ui` ไม่ซิงก์) · ขนาด ~25 KB/เดือน (~0.3 MB/ปี) · ใช้โปรเจกต์ Supabase เดียวกับ tet-sale (`nngrzevsxmxyccmuenjp`) และบัญชีผู้ใช้ชุดเดียวกัน (RLS: authenticated ทำได้ทุกอย่าง)
+⚠ แก้เดือนเดียวกันพร้อมกัน 2 เครื่อง = คนบันทึกทีหลังทับ (ทั้งแถวเดือน) — ยอมรับได้เพราะผู้ใช้หลักคนเดียว; ถ้าจะแก้ ให้เปลี่ยนเป็น 1 แถว/วัน
+
 `_src` ใช้ระบายสีช่อง และกันไม่ให้ "นำเข้าสรุปปี" ทับช่องที่ผู้ใช้แก้มือ (`edit`) — แต่การอัปโหลดไฟล์รายวัน **ทับได้** (แจ้งเตือนในหน้าตรวจ)
 
 ## 6. กราฟ (ผู้ใช้เลือก "ทำทั้ง a และ b")
@@ -129,14 +145,15 @@
 1. `python build.py`
 2. เปิด `index.html` ใน Chrome (ตั้ง timezone Asia/Bangkok ถ้าทดสอบอัตโนมัติ) → อัปโหลด `สรุปปี2026.xlsx` → บันทึก → ลบช่องจากไฟล์ของวันที่ 20/10 → อัปโหลดไฟล์ `20.10.2026 สรุป.xlsx` + `ค้างส่ง 20.10.2026_ตามรูป.xlsx` → เทียบตัวเลขหัวข้อ 4
 3. เปิดครบทุกแท็บ ไม่มี error ใน console · ลองดาวน์โหลด PNG ทั้ง 3 แบบ + Export Excel + บันทึก/โหลด JSON
-4. ไฟล์ตัวอย่างอยู่ที่เครื่องผู้ใช้ `D:\TET กราฟรายงงาน\` (ไม่อยู่ใน repo — มีข้อมูลลูกค้า)
+4. โหมดออนไลน์: `python tests/online_test.py "D:/TET กราฟรายงงาน"` (ล็อกอินผิด/ถูก, อัปโหลด, push เฉพาะเดือนที่แก้, error + ลองใหม่, เครื่องที่ 2 ดึงจากเซิร์ฟเวอร์, ออกจากระบบ) — **ห้ามทดสอบกับ Supabase จริงด้วยการลบ/เขียนทับข้อมูล**
+5. ไฟล์ตัวอย่างอยู่ที่เครื่องผู้ใช้ `D:\TET กราฟรายงงาน\` (ไม่อยู่ใน repo — มีข้อมูลลูกค้า)
 
 ## 8. ข้อตกลงกับผู้ใช้ (จากการถาม-ตอบ 21 ต.ค.)
 
 - ผู้ใช้ = หัวหน้าฝ่าย SALE/ขนส่ง/วางแผน TET · ชอบให้ลงมือเลย · ตอบสั้น · แก้ตรงจุด
 - ส่งรายงานทุกวัน (รายวัน) และทุกเดือน (สรุปปี + กราฟ ณ สิ้นเดือน)
-- เก็บข้อมูล: ตอนนี้ localStorage + JSON (เลือก "a ก่อน") · **ต่อไปย้ายไป Supabase/Firebase ได้** ("c ได้") — ถ้าทำ ให้ดูแบบโปรเจกต์ `supakrizs-cpu/tet-sale` (Cloudflare + Supabase, ล็อกอิน `ชื่อ@tet.local`) และเขียน SQL ให้ผู้ใช้รันเอง
-- ต้องมีทั้งไฟล์ standalone ในเครื่อง + เว็บ GitHub Pages
+- เก็บข้อมูล: **ออนไลน์ Cloudflare + Supabase** (สั่ง 21 ต.ค. "deploy cloudflare + ใช้ supabase ได้เลย") แบบเดียวกับ `supakrizs-cpu/tet-sale` · ตาราง/สิทธิ์ใหม่ = เพิ่ม SQL ใน `supabase-setup.sql` ให้ผู้ใช้รันเอง · **ห้ามขอ/commit secret หรือ service_role key**
+- ยังเก็บไฟล์ standalone ในเครื่อง + GitHub Pages ไว้ (โหมดเครื่อง)
 - ภาษาไทยอย่างเดียว
 - ห้ามใช้ `alert/confirm/prompt` (ใช้ toast + กดซ้ำยืนยัน)
 
@@ -145,5 +162,6 @@
 - [ ] ผู้ใช้ยังไม่ได้ยืนยันว่า "คัดลอกรูป" วางใน LINE ได้จริง (ทดสอบได้แค่ดาวน์โหลด PNG)
 - [ ] ยืนยันประเภทบิลที่นับเป็นผ้าซ่อม/ตีกลับ (หัวข้อ 3)
 - [ ] เป้าส่งผ้า: ตาราง Excel ใช้ 42 แต่หัวกราฟเดิมเขียน 44 — ตอนนี้ใช้ 42
-- [ ] เก็บข้อมูลกลางหลายเครื่อง (Supabase) — แก้ส่วนที่ 2 ของ `app.js`
+- [ ] (21 ต.ค.) ผู้ใช้ต้องรัน `supabase-setup.sql` + ผูก Cloudflare กับ repo — ตรวจว่าเว็บ workers.dev ล็อกอินได้และบันทึกได้จริง
+- [ ] พิจารณาปิด GitHub Pages ถ้าผู้ใช้ใช้แต่ออนไลน์ (กันสับสนว่าข้อมูลอยู่คนละที่)
 - [ ] ถ้าไฟล์ "เปิดบิลขาย" มีกติกาคำนวณส่งผ้าดี/ส่งผ้าซ่อมได้ จะลดการกรอกมือ (ผู้ใช้เลือกกรอกมือไปก่อน — ตัวเลขไม่ตรงกับยอดรวมไฟล์นั้น 30.95 vs 22.29)

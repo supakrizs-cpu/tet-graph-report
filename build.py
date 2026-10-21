@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """รวม src/ + vendor/ เป็นไฟล์ HTML ไฟล์เดียว
    - dist/TET-กราฟรายงาน.html  (ใช้ในเครื่อง ไม่ต้องมีเน็ต)
-   - index.html                (หน้าเว็บ GitHub Pages — ไฟล์เดียวกัน)
+   - index.html                (GitHub Pages — โหมดเครื่อง)
+   - public/index.html         (Cloudflare — โหมดออนไลน์ Supabase; ใช้คู่กับ public/supabase*.js)
 """
 import os, io
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +21,7 @@ for k, v in parts.items():
     assert html.count(k) == 1, k
     html = html.replace(k, v.replace('</script', '<\\/script'))
 os.makedirs(os.path.join(ROOT, 'dist'), exist_ok=True)
-for out in [os.path.join('dist', 'TET-กราฟรายงาน.html'), 'index.html']:
+os.makedirs(os.path.join(ROOT, 'public'), exist_ok=True)
+for out in [os.path.join('dist', 'TET-กราฟรายงาน.html'), 'index.html', os.path.join('public', 'index.html')]:
     io.open(os.path.join(ROOT, out), 'w', encoding='utf8').write(html)
 print('built', len(html) // 1024, 'KB')
