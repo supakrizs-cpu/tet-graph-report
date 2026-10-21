@@ -25,6 +25,8 @@ const FIELDS = [
 ];
 const FK = Object.fromEntries(FIELDS.map(f=>[f.k,f]));
 const DEFAULT_TARGETS = {order:44, ship:42, raw:45, rep1:1.1, rep2:1.4};
+const DEFAULT_CAP = {white:13.75, black:15, wash:4.95, color:20};   // กำลังผลิตต่อวัน (ตัน) จาก Excel แถว CAP — ใช้ทุกเดือน, แก้ได้ในตั้งค่า (เก็บที่ S.maps.cap)
+const COLOR_K = ['white','black','wash','color'], BAKE_K = ['narrow','wide','split','waitBake'];
 const TH_DOW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 const TH_MON = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 
@@ -446,6 +448,26 @@ function renderQuick(){
 }
 
 /* ---------------- 10. ตารางเดือน ---------------- */
+const getCap = ()=>({...DEFAULT_CAP, ...((S.maps&&S.maps.cap)||{})});
+/* สรุปคอลัมน์สี/การอบ: วันที่ 1 → upto, เฉลี่ย = หารจำนวนวันที่มีข้อมูล (เหมือน AVERAGE ใน Excel) */
+function sumStats(ym, upto){
+  const M=getMonth(ym); const ds=monthDates(ym).filter(d=>!upto||d<=upto);
+  const st={}; const cap=getCap();
+  [...COLOR_K,...BAKE_K,'order'].forEach(k=>{
+    const v=ds.map(d=>{const r=M.d[d]; if(!r) return null; if(k==='order') return COLOR_K.some(x=>r[x]!=null)?COLOR_K.reduce((s,x)=>s+(r[x]||0),0):null; return r[k]!=null?r[k]:null;}).filter(x=>x!=null);
+    const sum=v.reduce((a,b)=>a+b,0); st[k]={sum, n:v.length, avg:v.length?sum/v.length:null};
+  });
+  const tc=COLOR_K.reduce((s,k)=>s+st[k].sum,0), tb=BAKE_K.reduce((s,k)=>s+st[k].sum,0);
+  COLOR_K.forEach(k=>{ st[k].pct=tc?st[k].sum/tc*100:null; st[k].cap=cap[k]; });
+  BAKE_K.forEach(k=>{ st[k].pct=tb?st[k].sum/tb*100:null; });
+  st.order.pct=tc?100:null; st.order.cap=COLOR_K.reduce((s,k)=>s+(+cap[k]||0),0);
+  Object.values(st).forEach(o=>{ if(o.cap!=null){ o.capPct=o.avg!=null&&o.cap?o.avg/o.cap*100:null; o.capLeft=o.avg!=null?o.cap-o.avg:null; } });
+  return st;
+}
+const SUM_ROWS = [
+  ['รวม','sum',v=>fmt(v,3)], ['เฉลี่ย/วัน','avg',v=>fmt(v,3)], ['% ของยอดรวม','pct',v=>v==null?'':fmt(v,1)+'%'],
+  ['CAP ต่อวัน','cap',v=>fmt(v,2)], ['% เฉลี่ยเทียบ CAP','capPct',v=>v==null?'':fmt(v,0)+'%'], ['CAP − เฉลี่ย (รับเพิ่มได้)','capLeft',v=>fmt(v,2)],
+];
 function renderGrid(){
   const ym=curYm(); const M=getMonth(ym); const upto=curUpto();
   const groups=[]; FIELDS.forEach(f=>{const g=groups[groups.length-1]; if(g&&g.g===f.g) g.n++; else groups.push({g:f.g,n:1});});
@@ -459,7 +481,12 @@ function renderGrid(){
       FIELDS.map(f=>{const s=src[f.k]; const cls=s==='edit'?'edit':(s==='file'||s==='import')?'file':''; return `<td class="${cls}"><input data-d="${d}" data-k="${f.k}" value="${r[f.k]!=null?+(+r[f.k]).toFixed(4):''}" inputmode="decimal" title="${s?{file:'จากไฟล์',import:'นำเข้าจากสรุปปี',edit:'แก้มือ',manual:'กรอกมือ'}[s]:''}"></td>`;}).join('')+
       `<td class="calc">${fmt(ord,3)}</td><td class="calc">${fmt(shp,3)}</td></tr>`;
   });
-  $('#grid').innerHTML=h+'</tbody>';
+  const st=sumStats(ym,upto); const n0=st.white.n;
+  h+='</tbody><tfoot>'+SUM_ROWS.map(([lab,key,f],ri)=>`<tr class="sum ${ri===0?'first':''}">`+
+    `<td class="d" style="bottom:${(SUM_ROWS.length-1-ri)*28}px">${lab}${ri===1?` <span class="hint">(${n0} วัน)</span>`:''}</td><td style="bottom:${(SUM_ROWS.length-1-ri)*28}px"></td>`+
+    FIELDS.map(fd=>{const o=st[fd.k]; const v=o?o[key]:undefined; const neg=key==='capLeft'&&v<0; return `<td class="sv ${neg?'neg':''}" style="bottom:${(SUM_ROWS.length-1-ri)*28}px">${v===undefined?'':f(v)}</td>`;}).join('')+
+    `<td class="sv" style="bottom:${(SUM_ROWS.length-1-ri)*28}px">${(v=>v===undefined?'':f(v))(st.order[key])}</td><td style="bottom:${(SUM_ROWS.length-1-ri)*28}px"></td></tr>`).join('')+'</tfoot>';
+  $('#grid').innerHTML=h;
   $$('#grid input[data-k]').forEach(i=>{
     i.onchange=()=>{
       const d=i.dataset.d,k=i.dataset.k; const M=getMonth(ymOf(d)); const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{};
@@ -714,6 +741,11 @@ function renderSettings(){
     <div class="set-grid">${mk.map(([k,l])=>`<div class="field"><label>${l}</label><input type="number" step="0.1" data-mt="${k}" value="${M.mt[k]??''}" placeholder="${fmt(M.t[k]*wd,1)} (อัตโนมัติ)"></div>`).join('')}</div>
   </div></div>
 
+  <div class="card"><div class="pad"><h2 class="sec">CAP กำลังผลิตต่อวัน (ตัน) <span class="hint">ใช้ในแถวสรุปท้าย "ตารางเดือน" — ใช้ทุกเดือน</span></h2>
+    <div class="set-grid">${[['white','ขาว'],['black','ดำ'],['wash','ล้างน้ำ'],['color','สี']].map(([k,l])=>`<div class="field"><label>${l}</label><input type="number" step="0.01" data-cap="${k}" value="${getCap()[k]}"></div>`).join('')}
+      <div class="field"><label>รวม</label><input disabled value="${fmt(Object.values(getCap()).reduce((a,b)=>a+(+b||0),0),2)}"></div></div>
+  </div></div>
+
   <div class="card"><div class="pad"><h2 class="sec">ข้อมูล</h2>
     <div class="row">
       <button class="btn" id="bJson">บันทึกไฟล์สำรอง (JSON)</button>
@@ -751,6 +783,7 @@ function renderSettings(){
   </div></div></details>`;
   const keepOpen=()=>{const o=document.querySelector('#setBox details')?.open; save(); renderSettings(); if(o) document.querySelector('#setBox details').open=true;};
   $$('[data-t]').forEach(i=>i.onchange=()=>{const v=num(i.value); if(v!=null){M.t[i.dataset.t]=v; save(); renderSettings();}});
+  $$('[data-cap]').forEach(i=>i.onchange=()=>{const v=num(i.value); if(v==null) return; S.maps.cap={...getCap(),[i.dataset.cap]:v}; save(); renderSettings();});
   $$('[data-mt]').forEach(i=>i.onchange=()=>{const v=num(i.value); if(v==null) delete M.mt[i.dataset.mt]; else M.mt[i.dataset.mt]=v; save();});
   $$('[data-b]').forEach(i=>i.onchange=()=>{S.maps.billTypes[+i.dataset.b][i.dataset.f]=i.value.trim(); save();});
   $$('[data-bdel]').forEach(b=>b.onclick=()=>{S.maps.billTypes.splice(+b.dataset.bdel,1); keepOpen();});
@@ -788,9 +821,15 @@ function exportYear(y){
         z(s.shipRepair[i]),z(s.shipGood[i]),z(s.pending[i]),z(s.pendingPrev[i]),z(s.pendingAfter8[i]),z(s.ship[i]),z(s.shipAvg[i]),z(s.shipCum[i]),z(s.prodCum[i]),z(s.fromProd[i]),z(s.prodAvg[i]),z(s.goodAvg[i]),
         w?T.raw:null, s.rawT[i], z(s.rawIn[i]), z(s.rawAvg[i]), z(s.rawCum[i]), s.prodCum[i]==null?null:r6(s.prodCum[i]/0.93)]);
     });
+    // แถวสรุปใต้ตาราง (คอลัมน์ F–M = ขาว…รออบ, N = เปิดสั่งย้อมจริงต่อวัน/รวม)
+    const st=sumStats(ym,null); aoa.push([]);
+    SUM_ROWS.forEach(([lab,key])=>{ const row=new Array(14).fill(null); row[4]=lab;
+      [...COLOR_K,...BAKE_K].forEach((k,j)=>{ const v=st[k][key]; row[5+j]=v==null?null:r6(key==='pct'||key==='capPct'?v/100:v); });
+      const v=st.order[key]; row[13]=v==null?null:r6(key==='pct'||key==='capPct'?v/100:v); aoa.push(row); });
     const ws=XLSX.utils.aoa_to_sheet(aoa);
+    { const base=aoa.length-SUM_ROWS.length; SUM_ROWS.forEach(([,key],ri)=>{ if(key==='pct'||key==='capPct') for(let c=5;c<=13;c++){ const cell=ws[XLSX.utils.encode_cell({r:base+ri,c})]; if(cell) cell.z='0.0%'; } }); }
     ws['!cols']=hdr.map((h,i)=>({wch:i===0?12:Math.min(Math.max(8,h.length*0.9),22)}));
-    for(let r=1;r<aoa.length;r++){ const c=ws[XLSX.utils.encode_cell({r,c:0})]; if(c){c.z='ddd dd/mm';} }
+    for(let r=1;r<=C.dates.length;r++){ const c=ws[XLSX.utils.encode_cell({r,c:0})]; if(c){c.z='ddd dd/mm';} }
     XLSX.utils.book_append_sheet(wb,ws,ym.replace('-','.')); n++;
   });
   if(!n){ toast('ไม่มีข้อมูลปี '+y); return; }

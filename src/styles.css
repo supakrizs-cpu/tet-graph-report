@@ -71,6 +71,10 @@ table.grid input{width:78px;border:0;background:transparent;padding:6px 6px;text
 table.grid input:focus{outline:2px solid var(--accent);background:#fff}
 table.grid td.file{background:var(--file)}
 table.grid td.edit{background:var(--edit)}
+table.grid tfoot td{position:sticky;background:#f3f6fa;height:28px;padding:0 8px;text-align:right;font-weight:600;z-index:2;border-bottom:1px solid var(--line)}
+table.grid tfoot tr.first td{border-top:2px solid #9fb6d6}
+table.grid tfoot td.d{left:0;z-index:4;text-align:left;font-weight:700;background:#e9eef6;white-space:nowrap}
+table.grid tfoot td.neg{color:var(--bad)}
 table.grid td.calc{color:var(--ink2);padding:0 8px;text-align:right;background:#fbfbfa}
 table.grid td.hc{text-align:center;padding:0 6px}
 .legendbox{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin:8px 0}
