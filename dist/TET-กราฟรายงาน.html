@@ -197,6 +197,7 @@ details.card summary{cursor:pointer;padding:12px 16px;font-weight:600}
       <span><i style="background:#fff"></i>กรอกมือ</span>
       <span><i style="background:var(--hol)"></i>วันหยุด (ไม่นับเป้า)</span>
       <span>ช่อง "หยุด" ติ๊กเพื่อตั้ง/ยกเลิกวันหยุด</span>
+      <button class="btn sm pri" id="bGridXlsx" style="margin-left:auto">⬇ Export Excel ตารางนี้</button>
     </div>
     <div class="gridwrap"><table class="grid" id="grid"></table></div>
   </section>
@@ -1128,6 +1129,43 @@ function renderSettings(){
 function confirmBox(msg){ const now=Date.now(); if(confirmBox._m===msg && now-confirmBox._t<4000){ confirmBox._m=null; return true; } confirmBox._m=msg; confirmBox._t=now; toast(msg+' — กดอีกครั้งเพื่อยืนยัน'); return false; }
 
 /* ---------------- 14. Export Excel (รูปแบบเดียวกับ สรุปปี2026.xlsx) ---------------- */
+/* Export ตารางเดือนตามที่เห็นบนจอ (ทุกวันของเดือน + แถวสรุปถึง "ข้อมูลถึงวันที่") */
+function exportGrid(){
+  flushDraft();
+  const ym=curYm(), upto=curUpto(), M=getMonth(ym);
+  const groups=[]; FIELDS.forEach(f=>{const g=groups[groups.length-1]; if(g&&g.g===f.g) g.n++; else groups.push({g:f.g,n:1});});
+  const r0=['','']; groups.forEach(g=>{ r0.push(g.g); for(let i=1;i<g.n;i++) r0.push(''); }); r0.push('คำนวณ','');
+  const r1=['วันที่','หยุด',...FIELDS.map(f=>f.l),'ออเดอร์รวม','ส่งผ้าสำเร็จ'];
+  const aoa=[[`ตารางเดือน ${ymLabel(ym)} — ข้อมูลถึง ${upto?dayLabel(upto):'-'}`],r0,r1];
+  const serial=d=>(Date.UTC(+d.slice(0,4),+d.slice(5,7)-1,+d.slice(8))-Date.UTC(1899,11,30))/86400000;
+  monthDates(ym).forEach(d=>{
+    const r=M.d[d]||{};
+    const ord=COLOR_K.some(k=>r[k]!=null)?COLOR_K.reduce((s,k)=>s+(r[k]||0),0):null;
+    const shp=r.shipGood!=null||r.shipRepair!=null?(r.shipGood||0)+(r.shipRepair||0):null;
+    aoa.push([serial(d), isHoliday(d)?'หยุด':'', ...FIELDS.map(f=>r[f.k]!=null?r6(r[f.k]):null), ord==null?null:r6(ord), shp==null?null:r6(shp)]);
+  });
+  const nDays=monthDates(ym).length;
+  const st=sumStats(ym,upto); aoa.push([]);
+  SUM_ROWS.forEach(([lab,key])=>{
+    const pctK=key==='pct'||key==='capPct';
+    const val=o=>{ const v=o?o[key]:undefined; return v==null?null:r6(pctK?v/100:v); };
+    aoa.push([lab+(key==='avg'?` (${st.white.n} วัน)`:''),'',...FIELDS.map(f=>val(st[f.k])),val(st.order),null]);
+  });
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const merges=[{s:{r:0,c:0},e:{r:0,c:r1.length-1}}]; let c=2;
+  groups.forEach(g=>{ if(g.n>1) merges.push({s:{r:1,c},e:{r:1,c:c+g.n-1}}); c+=g.n; }); merges.push({s:{r:1,c},e:{r:1,c:c+1}});
+  ws['!merges']=merges;
+  ws['!cols']=r1.map((h,i)=>({wch:i===0?12:i===1?6:Math.max(9,Math.min(h.length+2,18))}));
+  for(let r=3;r<3+nDays;r++){ const cell=ws[XLSX.utils.encode_cell({r,c:0})]; if(cell) cell.z='ddd dd/mm'; }
+  const base=3+nDays+1;
+  SUM_ROWS.forEach(([,key],ri)=>{ for(let cc=2;cc<r1.length;cc++){ const cell=ws[XLSX.utils.encode_cell({r:base+ri,c:cc})]; if(!cell) continue; cell.z=(key==='pct'||key==='capPct')?'0.0%':'#,##0.000'; } });
+  for(let r=3;r<3+nDays;r++) for(let cc=2;cc<r1.length;cc++){ const cell=ws[XLSX.utils.encode_cell({r,c:cc})]; if(cell) cell.z='#,##0.000'; }
+  ws['!freeze']={xSplit:1,ySplit:3}; ws['!views']=[{state:'frozen',xSplit:1,ySplit:3}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,ym.replace('-','.'));
+  XLSX.writeFile(wb,`ตารางเดือน ${ym.replace('-','.')}${upto?' ถึง '+upto.slice(8)+'.'+upto.slice(5,7):''}.xlsx`);
+}
+$('#bGridXlsx').onclick=exportGrid;
+
 function exportYear(y){
   const wb=XLSX.utils.book_new(); let n=0;
   Object.keys(S.months).filter(m=>m.startsWith(y)).sort().forEach(ym=>{
