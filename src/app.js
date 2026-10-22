@@ -341,7 +341,22 @@ function fillDaySel(prefer){
   sel.innerHTML=monthDates(ym).map(d=>`<option value="${d}">${dayLabel(d)}${M.d[d]&&FIELDS.some(f=>M.d[d][f.k]!=null)?'':' (ว่าง)'}</option>`).join('');
   sel.value=prefer&&monthDates(ym).includes(prefer)?prefer:(last||monthDates(ym)[0]);
 }
+/* บันทึกค่าที่กำลังพิมพ์ทันที (ไม่ต้องรอกดบันทึก/ออกจากช่อง) — กันข้อมูลหายตอนสลับแท็บ/สลับหน้าต่าง */
+function setVal(d,k,raw){
+  const M=getMonth(ymOf(d)); const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{};
+  const v=num(raw); const was=cur._src[k];
+  if(v==null){ if(cur[k]==null) return false; delete cur[k]; delete cur._src[k]; }
+  else { if(cur[k]===v) return false; cur[k]=v; cur._src[k]=(FK[k].src==='manual')?'manual':((was==='file'||was==='import'||was==='edit')?'edit':'manual'); }
+  save(); return true;
+}
+const DRAFT={t:null,fn:null};
+function draft(fn){ clearTimeout(DRAFT.t); DRAFT.fn=fn; DRAFT.t=setTimeout(flushDraft,400); }
+function flushDraft(){ clearTimeout(DRAFT.t); DRAFT.t=null; const f=DRAFT.fn; DRAFT.fn=null; if(f) f(); }
+const typing=()=>{ const a=document.activeElement; return !!(a && a.matches && a.matches('#grid input[data-k], #quickForm input[data-q]')); };
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') flushDraft(); });
+window.addEventListener('pagehide',flushDraft);
 function refresh(){
+  flushDraft();
   if(curView==='grid') renderGrid();
   if(curView==='charts') renderCharts();
   if(curView==='year') renderYear();
@@ -439,11 +454,16 @@ function renderQuick(){
   box.innerHTML=`<div class="field" style="min-width:140px"><label>วันที่</label><input type="date" id="qDate" value="${d}"></div>`+
     mans.map(f=>`<div class="field"><label>${f.l} (ตัน)</label><input type="number" step="0.001" data-q="${f.k}" value="${r[f.k]??''}"></div>`).join('')+
     `<button class="btn pri" id="qSave" style="align-self:flex-end">บันทึก</button>`;
-  $('#qDate').onchange=e=>{const v=e.target.value; if(!v) return; fillMonthSel(ymOf(v)); fillDaySel(v); renderQuick();};
+  $('#qDate').onchange=e=>{flushDraft(); const v=e.target.value; if(!v) return; fillMonthSel(ymOf(v)); fillDaySel(v); renderQuick();};
+  // บันทึกอัตโนมัติทุกช่องระหว่างพิมพ์ (ปุ่มบันทึกยังกดได้ เพื่อยืนยัน)
+  $$('[data-q]').forEach(i=>{
+    const put=()=>setVal($('#qDate').value,i.dataset.q,i.value);
+    i.oninput=()=>draft(put); i.onchange=()=>{ draft(put); flushDraft(); };
+  });
   $('#qSave').onclick=()=>{
-    const dd=$('#qDate').value; const M=getMonth(ymOf(dd)); const cur=M.d[dd]||(M.d[dd]={_src:{}}); cur._src=cur._src||{};
-    $$('[data-q]').forEach(i=>{const k=i.dataset.q; const v=num(i.value); if(v==null){delete cur[k];delete cur._src[k];} else {cur[k]=v;cur._src[k]='manual';}});
-    save(); fillMonthSel(ymOf(dd)); fillDaySel(dd); toast('บันทึกแล้ว');
+    flushDraft(); const dd=$('#qDate').value;
+    $$('[data-q]').forEach(i=>setVal(dd,i.dataset.q,i.value));
+    fillMonthSel(ymOf(dd)); fillDaySel(dd); toast('บันทึกแล้ว');
   };
 }
 
@@ -488,12 +508,10 @@ function renderGrid(){
     `<td class="sv" style="bottom:${(SUM_ROWS.length-1-ri)*28}px">${(v=>v===undefined?'':f(v))(st.order[key])}</td><td style="bottom:${(SUM_ROWS.length-1-ri)*28}px"></td></tr>`).join('')+'</tfoot>';
   $('#grid').innerHTML=h;
   $$('#grid input[data-k]').forEach(i=>{
+    i.oninput=()=>draft(()=>setVal(i.dataset.d,i.dataset.k,i.value));
     i.onchange=()=>{
-      const d=i.dataset.d,k=i.dataset.k; const M=getMonth(ymOf(d)); const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{};
-      const v=num(i.value);
-      if(v==null){ delete cur[k]; delete cur._src[k]; }
-      else { const was=cur._src[k]; cur[k]=v; cur._src[k]=(FK[k].src==='manual')?'manual':((was==='file'||was==='import'||was==='edit')?'edit':'manual'); }
-      save(); const sel=$('#selDay').value; fillDaySel(sel); renderGrid();
+      const d=i.dataset.d,k=i.dataset.k; DRAFT.fn=null; clearTimeout(DRAFT.t);
+      setVal(d,k,i.value); const sel=$('#selDay').value; fillDaySel(sel); renderGrid();
       setTimeout(()=>{const n=document.querySelector(`#grid input[data-d="${d}"][data-k="${k}"]`); const all=$$('#grid input[data-k]'); const ix=all.indexOf(n); if(all[ix+FIELDS.length]) all[ix+FIELDS.length].focus();},0);
     };
     i.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); i.blur(); } };
@@ -868,7 +886,7 @@ async function boot(){
   if(!IS_SB) return;
   SB=window.supabase.createClient(SB_CFG.url, SB_CFG.key);
   await sbLogin(); await reloadCloud();
-  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && SYNC.state==='ok' && !Cloud.pending()) reloadCloud(); });
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && SYNC.state==='ok' && !Cloud.pending() && !typing()) reloadCloud(); });
   window.addEventListener('beforeunload',e=>{ if(Cloud.timer||Cloud.busy){ e.preventDefault(); e.returnValue=''; } });
 }
 boot();
