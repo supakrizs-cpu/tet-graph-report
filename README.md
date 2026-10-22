@@ -2,14 +2,14 @@
 
 HTML ไฟล์เดียว: อัปโหลด Excel → ตาราง + กราฟรายวัน/สรุปปี → คัดลอกรูปวางใน LINE
 
-- ใช้ในเครื่อง: เปิด `dist/TET-กราฟรายงาน.html` (ไม่ต้องมีอินเทอร์เน็ต)
-- ออนไลน์: https://supakrizs-cpu.github.io/tet-graph-report/ (GitHub Pages เสิร์ฟ `index.html` ไฟล์เดียวกัน)
+- **ใช้งานจริง (หลัก):** https://tet-graph-report.supakrizs.workers.dev — ล็อกอินบัญชีเดียวกับ Sale Order Tracker · ข้อมูลบน Supabase (Cloudflare deploy `public/`)
+- สำรอง: GitHub Pages `index.html` / ไฟล์ `dist/TET-กราฟรายงาน.html` — โหมดเครื่อง ข้อมูลแยกในเบราว์เซอร์ (ไม่ซิงก์กับออนไลน์)
 - **จะแก้ต่อ อ่าน `HANDOFF.md` ก่อน** (กฎสั้นสำหรับ AI อยู่ใน `AGENTS.md`)
-- ข้อมูลเก็บในเบราว์เซอร์ของแต่ละเครื่อง (localStorage) + ไฟล์สำรอง JSON — **repo นี้ไม่มีข้อมูลจริง ห้าม commit ไฟล์ Excel/JSON ข้อมูล**
+- **repo นี้ไม่มีข้อมูลจริง ห้าม commit ไฟล์ Excel/JSON ข้อมูล**
 
 ## แก้ไขโปรแกรม
 1. แก้ไฟล์ใน `src/` (`app.js`, `styles.css`, `index.template.html`, `defaults.js`)
-2. `python build.py` → ได้ `dist/TET-กราฟรายงาน.html` และ `index.html`
+2. `python build.py` → ได้ `public/index.html`, `index.html`, `dist/TET-กราฟรายงาน.html`
 3. commit + push
 
 ## ไฟล์ที่อ่านได้
