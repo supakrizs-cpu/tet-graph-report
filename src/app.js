@@ -24,6 +24,20 @@ const FIELDS = [
   {k:'rawIn',        l:'รับผ้าดิบเข้าโรงงาน',        src:'manual',g:'กรอกมือ'},
 ];
 const FK = Object.fromEntries(FIELDS.map(f=>[f.k,f]));
+/* ฟิลด์รายงานยอดขาย & ส่งผ้า (ไม่แสดงในตารางเดือน) */
+const SFIELDS = [
+  {k:'shipPrevKg', l:'ส่งผ้าได้ (กก.) ผ้าค้างส่งเดือนก่อน', dec:2},
+  {k:'shipCurKg',  l:'ส่งผ้าได้ (กก.) ผ้าเสร็จในเดือน', dec:2},
+  {k:'salePrev',   l:'ยอดขาย (บาท) ผ้าค้างส่ง', dec:2},
+  {k:'saleCur',    l:'ยอดขาย (บาท) ผ้าเสร็จในเดือน', dec:2},
+  {k:'pendValNet', l:'มูลค่าผ้าค้างส่ง − หลัง 08:00 (บาท)', dec:0},
+  {k:'pendVal8',   l:'มูลค่าค้างส่งหลัง 08:00 (บาท)', dec:0},
+  {k:'saleCumManual', l:'ยอดขายสะสม (บาท) กรอกเอง', dec:2},
+  {k:'orderTotal', l:'ออเดอร์จริง (นำเข้า)', dec:3},
+];
+const SK = Object.fromEntries(SFIELDS.map(f=>[f.k,f]));
+const LBL = k=>(FK[k]||SK[k]||{l:k}).l;
+const DEC = k=>SK[k]?SK[k].dec:3;
 const DEFAULT_TARGETS = {order:44, ship:42, raw:45, rep1:1.1, rep2:1.4};
 const DEFAULT_CAP = {white:13.75, black:15, wash:4.95, color:20};   // กำลังผลิตต่อวัน (ตัน) จาก Excel แถว CAP — ใช้ทุกเดือน, แก้ได้ในตั้งค่า (เก็บที่ S.maps.cap)
 const COLOR_K = ['white','black','wash','color'], BAKE_K = ['narrow','wide','split','waitBake'];
@@ -190,9 +204,14 @@ async function analyzeFile(file){
     const rows=sheetRows(wb.Sheets[sn]);
     const h=findHeader(rows,['วันที่ขนส่งรับ','น้ำหนักสุทธิ','เลขที่บิล']);
     if(h){
-      if(/เปิดบิล/.test(name) && !/ค้าง/.test(name)) return {kind:'skip',name,msg:'ไฟล์เปิดบิลขาย — ไม่ได้ใช้ (ส่งผ้าซ่อม/ส่งผ้าดี กรอกมือ)'};
+      if(isBillFile(rows,h,name)) return parseBillSheet(rows,h,name,sn);
       return parsePendingSheet(rows,h,name,sn);
     }
+  }
+  // ง) ไฟล์รายงานยอดขาย (Excel เดิม — บล็อกรายเดือน)
+  for(const sn of wb.SheetNames){
+    const rows=sheetRows(wb.Sheets[sn]);
+    if(rows.some(r=>r&&r.some(v=>norm(v)===norm('รวมยอดขาย')))) return parseSalesBook(rows,name,sn);
   }
   return {kind:'skip',name,msg:'ไม่รู้จักรูปแบบไฟล์นี้'};
 }
@@ -228,22 +247,22 @@ function parseOrderSheet(rows,h,name,sn){
 }
 
 function parsePendingSheet(rows,h,name,sn){
-  const c={recv:h.idx('วันที่ขนส่งรับ'),w:h.idx('น้ำหนักสุทธิ')};
+  const c={recv:h.idx('วันที่ขนส่งรับ'),w:h.idx('น้ำหนักสุทธิ'),v:h.idx('มูลค่า')};
   const items=[]; let maxD=null;
   for(let r=h.i+1;r<rows.length;r++){
     const w=num(rows[r][c.w]); if(w==null) continue;
-    const d=toDate(rows[r][c.recv]); items.push({w,d});
+    const d=toDate(rows[r][c.recv]); items.push({w,d,v:c.v>=0?(num(rows[r][c.v])||0):0});
     if(d&&(!maxD||d>maxD)) maxD=d;
   }
   const guess=dateFromFilename(name)||(maxD?ymd(maxD):ymd(new Date()));
-  const res={kind:'pend',name,sheet:sn,items,reportDate:guess,warns:[],fields:['pending','pendingPrev','pendingAfter8']};
+  const res={kind:'pend',name,sheet:sn,items,reportDate:guess,warns:[],fields:['pending','pendingPrev','pendingAfter8'].concat(c.v>=0?['pendValNet','pendVal8']:[])};
   calcPending(res); return res;
 }
 function calcPending(res){
   const rd=parseYmd(res.reportDate); const mStart=new Date(rd.getFullYear(),rd.getMonth(),1); const at8=new Date(rd.getFullYear(),rd.getMonth(),rd.getDate(),8,0,0);
-  let tot=0,prev=0,after=0,noDate=0;
-  res.items.forEach(({w,d})=>{ tot+=w; if(!d){noDate++;return;} if(d<mStart) prev+=w; else if(d>=at8) after+=w; });
-  res.days={[res.reportDate]:{pending:r6((tot-prev-after)/1000),pendingPrev:r6(prev/1000),pendingAfter8:r6(after/1000)}};
+  let tot=0,prev=0,after=0,noDate=0,vt=0,v8=0;
+  res.items.forEach(({w,d,v})=>{ tot+=w; vt+=v; if(!d){noDate++;return;} if(d>=at8) v8+=v; if(d<mStart) prev+=w; else if(d>=at8) after+=w; });
+  res.days={[res.reportDate]:{pending:r6((tot-prev-after)/1000),pendingPrev:r6(prev/1000),pendingAfter8:r6(after/1000),pendValNet:Math.round(vt-v8),pendVal8:Math.round(v8)}};
   res.summary=`รวมค้างส่ง ${fmt(tot/1000,3)} ตัน จาก ${res.items.length} รายการ`;
   res.warns = noDate?[`มี ${noDate} รายการไม่มีวันที่ขนส่งรับ (นับรวมใน "ผ้าค้างส่ง")`]:[];
 }
@@ -346,7 +365,7 @@ function setVal(d,k,raw){
   const M=getMonth(ymOf(d)); const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{};
   const v=num(raw); const was=cur._src[k];
   if(v==null){ if(cur[k]==null) return false; delete cur[k]; delete cur._src[k]; }
-  else { if(cur[k]===v) return false; cur[k]=v; cur._src[k]=(FK[k].src==='manual')?'manual':((was==='file'||was==='import'||was==='edit')?'edit':'manual'); }
+  else { if(cur[k]===v) return false; cur[k]=v; cur._src[k]=(!FK[k]||FK[k].src==='manual')?'manual':((was==='file'||was==='import'||was==='edit')?'edit':'manual'); }
   save(); return true;
 }
 const DRAFT={t:null,fn:null};
@@ -361,6 +380,7 @@ function refresh(){
   if(curView==='charts') renderCharts();
   if(curView==='year') renderYear();
   if(curView==='settings') renderSettings();
+  if(curView==='sales') renderSales();
   if(curView==='upload') renderQuick();
 }
 $$('#tabs button').forEach(b=>b.onclick=()=>{
@@ -387,7 +407,7 @@ async function handleFiles(files){
   renderPreview();
 }
 function renderPreview(){
-  const box=$('#pvList'); box.innerHTML='';
+  const box=$('#pvList'); box.innerHTML=''; let html0='';
   pending.forEach((p,pi)=>{
     const el=document.createElement('div'); el.className='pv';
     if(p.kind==='skip'){ el.innerHTML=`<h3>⚪ ${esc(p.name)}</h3><div class="hint">${esc(p.msg)}</div>`; box.appendChild(el); return; }
@@ -399,15 +419,24 @@ function renderPreview(){
         ${p.warns.map(w=>`<div class="warn">⚠ ${esc(w)}</div>`).join('')}`;
       box.appendChild(el); return;
     }
-    const icon=p.kind==='order'?'🧾':'🚚';
-    const title=p.kind==='order'?'เปิดบิลสั่งย้อม (ไฟล์สรุป)':'ผ้าค้างส่ง';
-    let html=`<h3>${icon} ${esc(p.name)} — ${title}</h3>`;
+    if(p.kind==='sales'){
+      const ms=Object.keys(p.months).sort();
+      el.innerHTML=`<h3>💰 ${esc(p.name)} — นำเข้ารายงานยอดขาย & ส่งผ้า ย้อนหลัง</h3>
+        <div class="hint">พบ ${ms.length} เดือน: ${ms.map(m=>`${ymLabel(m)} (${Object.keys(p.months[m].d).length} วัน${p.months[m].s.saleTarget?`, เป้าขาย ${fmt(p.months[m].s.saleTarget,0)}`:''})`).join(' · ')}</div>
+        <div class="hint">นำเข้า: ส่งผ้าได้ / ยอดขาย (ช่องย่อย — รวมให้โปรแกรมบวกเอง) · ยอดขายสะสมตามที่พิมพ์ไว้ · มูลค่าค้างส่ง · เป้า · วันหยุดขาย/ออเดอร์</div>
+        ${p.warns.map(w=>`<div class="warn">⚠ ${esc(w)}</div>`).join('')}`;
+      box.appendChild(el); return;
+    }
+    const icon=p.kind==='order'?'🧾':p.kind==='bill'?'💰':'🚚';
+    const title=p.kind==='order'?'เปิดบิลสั่งย้อม (ไฟล์สรุป)':p.kind==='bill'?'เปิดบิลขาย (ส่งผ้าได้ / ยอดขาย)':'ผ้าค้างส่ง';
+    if(p.kind==='bill') html0=`<div class="hint">${esc(p.summary)}</div>`; else html0='';
+    let html=`<h3>${icon} ${esc(p.name)} — ${title}</h3>`+html0;
     if(p.kind==='pend') html+=`<div class="row"><label class="hint">วันที่รายงาน</label><input type="date" value="${p.reportDate}" data-rd="${pi}" class="btn sm"><span class="hint">${esc(p.summary)} · "หลัง 8 โมง" = ขนส่งรับตั้งแต่ 08:00 ของวันนี้</span></div>`;
     Object.entries(p.days).sort().forEach(([d,vals])=>{
       const old=(S.months[ymOf(d)]||{d:{}}).d[d]||{};
-      html+=`<table><tr><th>${dayLabel(d)}</th>${p.fields.map(k=>`<th>${FK[k].l}</th>`).join('')}</tr>
-        <tr><th>ค่าใหม่ (ตัน)</th>${p.fields.map(k=>`<td class="${old[k]!=null&&Math.abs(old[k]-vals[k])>1e-6?'chg':''}">${fmt(vals[k],3)}</td>`).join('')}</tr>
-        ${p.fields.some(k=>old[k]!=null)?`<tr><th>ค่าเดิม</th>${p.fields.map(k=>`<td class="old">${fmt(old[k],3)}${old._src&&old._src[k]==='edit'?' ✎':''}</td>`).join('')}</tr>`:''}</table>`;
+      html+=`<table><tr><th>${dayLabel(d)}</th>${p.fields.map(k=>`<th>${LBL(k)}</th>`).join('')}</tr>
+        <tr><th>ค่าใหม่</th>${p.fields.map(k=>`<td class="${old[k]!=null&&Math.abs(old[k]-vals[k])>1e-6?'chg':''}">${fmt(vals[k],DEC(k))}</td>`).join('')}</tr>
+        ${p.fields.some(k=>old[k]!=null)?`<tr><th>ค่าเดิม</th>${p.fields.map(k=>`<td class="old">${fmt(old[k],DEC(k))}${old._src&&old._src[k]==='edit'?' ✎':''}</td>`).join('')}</tr>`:''}</table>`;
       if(p.fields.some(k=>old[k]!=null)) html+=`<div class="warn">⚠ วันนี้มีข้อมูลอยู่แล้ว — บันทึกจะเขียนทับ (ช่องที่มี ✎ แก้มือไว้ ก็จะถูกทับด้วย)</div>`;
     });
     p.warns.forEach(w=>html+=`<div class="warn">⚠ ${esc(w)}</div>`);
@@ -432,7 +461,18 @@ $('#btnSaveAll').onclick=()=>{
         });
         n++;
       });
-    } else if(p.kind==='order'||p.kind==='pend'){
+    } else if(p.kind==='sales'){
+      Object.entries(p.months).forEach(([ym,mo])=>{
+        const M=getMonth(ym); M.s=Object.assign(M.s||{},mo.s); M.holSale=Object.assign(M.holSale||{},mo.holSale);
+        if(mo.hol) Object.assign(M.hol,mo.hol);
+        Object.entries(mo.d).forEach(([d,rec])=>{
+          const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{};
+          Object.entries(rec).forEach(([k,v])=>{ if(v!=null && cur._src[k]!=='edit' && !(k==='saleCumManual'&&cur._src[k]==='manual')){ cur[k]=v; cur._src[k]='import'; } });
+          if(!lastDate||d>lastDate) lastDate=d;
+        });
+        n++;
+      });
+    } else if(p.kind==='order'||p.kind==='pend'||p.kind==='bill'){
       Object.entries(p.days).forEach(([d,vals])=>{
         const M=getMonth(ymOf(d)); const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{};
         p.fields.forEach(k=>{ cur[k]=vals[k]; cur._src[k]='file'; });
@@ -684,10 +724,12 @@ $('[data-dlall]').onclick=async()=>{ for(const b of $$('#charts'+curStyle+' [dat
 /* ---- คัดลอก/ดาวน์โหลดรูป ---- */
 async function snap(card){
   const shot=card.querySelector('.shot');
-  const sc=shot.querySelector('.xa-scroll'); if(sc) sc.style.overflow='visible';
-  const w=Math.max(shot.scrollWidth, shot.querySelector('.xa-inner')?.scrollWidth+32||0);
+  const sc=shot.querySelector('.xa-scroll, .sr-scroll'); if(sc) sc.style.overflow='visible';
+  const hide=[...shot.querySelectorAll('.noshot, td.in input')]; hide.forEach(e=>e.style.display='none');
+  const inner=shot.querySelector('.xa-inner, table.sr');
+  const w=Math.max(shot.scrollWidth, inner?inner.scrollWidth+32:0);
   try{ return await html2canvas(shot,{backgroundColor:'#ffffff',scale:1.5,width:w,windowWidth:Math.max(w+40,1200),logging:false}); }
-  finally{ if(sc) sc.style.overflow=''; }
+  finally{ if(sc) sc.style.overflow=''; hide.forEach(e=>e.style.display=''); }
 }
 function wireShot(card,name){
   const c=card.querySelector('[data-copy]'), d=card.querySelector('[data-dl]');
@@ -759,6 +801,10 @@ function renderSettings(){
     <div class="set-grid">${mk.map(([k,l])=>`<div class="field"><label>${l}</label><input type="number" step="0.1" data-mt="${k}" value="${M.mt[k]??''}" placeholder="${fmt(M.t[k]*wd,1)} (อัตโนมัติ)"></div>`).join('')}</div>
   </div></div>
 
+  <div class="card"><div class="pad"><h2 class="sec">รายงานยอดขาย & ส่งผ้า — ${ymLabel(ym)} <span class="hint">(เดือนใหม่คัดลอกจากเดือนก่อน · วันหยุดขายติ๊กที่แท็บยอดขาย · วันหยุดออเดอร์ติ๊กที่ตารางเดือน)</span></h2>
+    <div class="set-grid">${[['orderT','เป้าออเดอร์ (ตัน/วัน)',0.01],['saleTarget','เป้ายอดขาย (บาท/เดือน)',1],['shipMonth','หัวตาราง: ตัน/เดือน',1],['shipDay','หัวตาราง: ตัน/วัน',1],['price','หัวตาราง: บาท/ก.ก.',0.01],['prodDays','หัวตาราง: วันผลิต (ว่าง = เท่าวันขาย)',1]].map(([k,l,st])=>`<div class="field"><label>${l}</label><input type="number" step="${st}" data-ss="${k}" value="${getSaleSet(ym)[k]??''}"></div>`).join('')}</div>
+  </div></div>
+
   <div class="card"><div class="pad"><h2 class="sec">CAP กำลังผลิตต่อวัน (ตัน) <span class="hint">ใช้ในแถวสรุปท้าย "ตารางเดือน" — ใช้ทุกเดือน</span></h2>
     <div class="set-grid">${[['white','ขาว'],['black','ดำ'],['wash','ล้างน้ำ'],['color','สี']].map(([k,l])=>`<div class="field"><label>${l}</label><input type="number" step="0.01" data-cap="${k}" value="${getCap()[k]}"></div>`).join('')}
       <div class="field"><label>รวม</label><input disabled value="${fmt(Object.values(getCap()).reduce((a,b)=>a+(+b||0),0),2)}"></div></div>
@@ -801,6 +847,7 @@ function renderSettings(){
   </div></div></details>`;
   const keepOpen=()=>{const o=document.querySelector('#setBox details')?.open; save(); renderSettings(); if(o) document.querySelector('#setBox details').open=true;};
   $$('[data-t]').forEach(i=>i.onchange=()=>{const v=num(i.value); if(v!=null){M.t[i.dataset.t]=v; save(); renderSettings();}});
+  $$('[data-ss]').forEach(i=>i.onchange=()=>{ const s=getSaleSet(ym); const v=num(i.value); if(v==null){ if(i.dataset.ss==='prodDays') s.prodDays=null; } else s[i.dataset.ss]=v; save(); });
   $$('[data-cap]').forEach(i=>i.onchange=()=>{const v=num(i.value); if(v==null) return; S.maps.cap={...getCap(),[i.dataset.cap]:v}; save(); renderSettings();});
   $$('[data-mt]').forEach(i=>i.onchange=()=>{const v=num(i.value); if(v==null) delete M.mt[i.dataset.mt]; else M.mt[i.dataset.mt]=v; save();});
   $$('[data-b]').forEach(i=>i.onchange=()=>{S.maps.billTypes[+i.dataset.b][i.dataset.f]=i.value.trim(); save();});
@@ -824,6 +871,149 @@ function renderSettings(){
 function confirmBox(msg){ const now=Date.now(); if(confirmBox._m===msg && now-confirmBox._t<4000){ confirmBox._m=null; return true; } confirmBox._m=msg; confirmBox._t=now; toast(msg+' — กดอีกครั้งเพื่อยืนยัน'); return false; }
 
 /* ---------------- 14. Export Excel (รูปแบบเดียวกับ สรุปปี2026.xlsx) ---------------- */
+/* ---------------- 16. รายงานยอดขาย & ส่งผ้า ----------------
+   ส่งผ้าได้/ยอดขาย  = ไฟล์ "เปิดบิลขาย": ตัดเลขบิลที่มี C และเลขบิล 4 หลัก แล้วรวม น้ำหนักสุทธิ/มูลค่า
+                       แยกตามเดือนของ "วันที่ขนส่งรับ" (เดือนก่อน = ผ้าค้างส่ง, เดือนเดียวกัน = ผ้าเสร็จในเดือน)
+   มูลค่าค้างส่ง      = ไฟล์ "ค้างส่ง": รวมมูลค่าทั้งหมด − มูลค่าที่ขนส่งรับตั้งแต่ 08:00 ของวันรายงาน (และแยกช่องหลัง 08:00)
+   ยอดขายสะสม        = สะสมของวันก่อน + รวมยอดขายวันนี้ — ถ้าผู้ใช้กรอก saleCumManual วันไหน ใช้ค่านั้นแทนและนับต่อจากนั้น
+   ------------------------------------------------------------------ */
+const SALE_DEF = {orderT:41, saleTarget:45000000, shipMonth:1040, shipDay:40, price:45, prodDays:null};
+function getSaleSet(ym){ const M=getMonth(ym); if(!M.s){ const prev=Object.keys(S.months).filter(k=>k<ym&&S.months[k].s).sort().pop(); M.s={...(prev?S.months[prev].s:SALE_DEF)}; } if(!M.holSale) M.holSale={}; return M.s; }
+function isSaleHoliday(d){ const M=S.months[ymOf(d)]; const o=M&&M.holSale?M.holSale[d]:undefined; if(o!==undefined) return o; return parseYmd(d).getDay()===0; }
+function isBillFile(rows,h,name){
+  if(/ค้าง/.test(name)) return false;
+  if(/เปิดบิล/.test(name)) return true;
+  const ci=h.idx('วันที่เปิดบิลขาย'); if(ci<0) return false;
+  const s=new Set(); for(let r=h.i+1;r<rows.length;r++){ const d=toDate(rows[r][ci]); if(d) s.add(ymd(d)); if(s.size>2) return false; } return s.size>=1;
+}
+function parseBillSheet(rows,h,name,sn){
+  const c={recv:h.idx('วันที่ขนส่งรับ'),bill:h.idx('วันที่เปิดบิลขาย'),no:h.idx('เลขที่บิล'),w:h.idx('น้ำหนักสุทธิ'),v:h.idx('มูลค่า')};
+  const by={}; let cut=0, all=0; const warns=[];
+  for(let r=h.i+1;r<rows.length;r++){
+    const row=rows[r]; const w=num(row[c.w]); if(w==null) continue; all++;
+    const no=String(row[c.no]??'').trim();
+    if(/c/i.test(no) || /^\d{4}$/.test(no)){ cut++; continue; }          // ตัดบิลที่มี C และเลขบิล 4 หลัก
+    const bd=toDate(row[c.bill]); const rv=toDate(row[c.recv]); if(!bd){ continue; }
+    const key=ymd(bd); const o=by[key]||(by[key]={shipPrevKg:0,shipCurKg:0,salePrev:0,saleCur:0});
+    const prev = rv && (rv.getFullYear()*12+rv.getMonth()) < (bd.getFullYear()*12+bd.getMonth());
+    const v=c.v>=0?(num(row[c.v])||0):0;
+    if(prev){ o.shipPrevKg+=w; o.salePrev+=v; } else { o.shipCurKg+=w; o.saleCur+=v; }
+  }
+  const days={}; Object.entries(by).forEach(([d,o])=>days[d]={shipPrevKg:r6(o.shipPrevKg),shipCurKg:r6(o.shipCurKg),salePrev:r6(o.salePrev),saleCur:r6(o.saleCur)});
+  if(c.v<0) warns.push('ไม่พบคอลัมน์ "มูลค่า" — ยอดขายจะเป็น 0');
+  return {kind:'bill',name,sheet:sn,days,warns,fields:['shipPrevKg','shipCurKg','salePrev','saleCur'],summary:`ทั้งหมด ${all} แถว · ตัดออก ${cut} แถว (บิลมี C / เลขบิล 4 หลัก) · ใช้ ${all-cut} แถว`};
+}
+/* นำเข้าไฟล์ Excel รายงานยอดขายเดิม: หาบล็อก "วันที่" + "รวมยอดขาย" ทุกบล็อก, เอาเฉพาะปี 2026 ขึ้นไป */
+function parseSalesBook(rows,name,sn){
+  const months={}; const warns=[];
+  const H=(hdr,re)=>hdr.findIndex(h=>re.test(norm(h)));
+  for(let i=0;i<rows.length;i++){
+    const hdr=(rows[i]||[]).map(x=>String(x??''));
+    if(!hdr.some(x=>norm(x)==='วันที่') || !hdr.some(x=>norm(x)===norm('รวมยอดขาย'))) continue;
+    const col={date:hdr.findIndex(x=>norm(x)==='วันที่'),
+      shipPrevKg:H(hdr,/^ส่งผ้าได้\(ก\.ก\.\)ผ้าค้าง/), shipCurKg:H(hdr,/^ส่งผ้าได้\(ก\.ก\.\)ผ้าเสร็จ/),
+      salePrev:H(hdr,/^ยอดขาย\(บาท\)ผ้าค้าง/), saleCur:H(hdr,/^ยอดขาย\(บาท\)ผ้าเสร็จ/), saleCum:H(hdr,/^ยอดขายสะสม/),
+      pendValNet:H(hdr,/^มูลค่าผ้าค้างส่ง/), pendVal8:H(hdr,/^มูล(ค่า)?ค้างส่งหลัง/), saleTarget:H(hdr,/^เป้ายอดขาย$/),
+      orderT:H(hdr,/^เป้าต่อวัน$/), orderTotal:H(hdr,/^ออเดอร์จริง$/)};
+    // หาเดือนของบล็อกจากวันที่ส่วนใหญ่
+    const ds=[]; for(let r=i+1;r<Math.min(rows.length,i+33);r++){ const d=toDate(rows[r]&&rows[r][col.date]); if(!d) break; ds.push(d); }
+    if(!ds.length) continue;
+    const cnt={}; ds.forEach(d=>{const k=ymd(d).slice(0,7); cnt[k]=(cnt[k]||0)+1;}); const ym=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0][0];
+    if(+ym.slice(0,4)<2026) continue;
+    const title=[rows[i-2],rows[i-1]].map(r=>(r||[]).filter(x=>x!=null).join(' ')).join(' ');
+    const out={d:{},hol:{},holSale:{},s:{}}; const dates=monthDates(ym);
+    let any=false;
+    for(let k=0;k<Math.min(ds.length,dates.length);k++){
+      const row=rows[i+1+k]; const d=dates[k]; const rec={};
+      ['shipPrevKg','shipCurKg','salePrev','saleCur','pendValNet','pendVal8','orderTotal'].forEach(f=>{ if(col[f]>=0){ const v=num(row[col[f]]); if(v!=null) rec[f]=v; } });
+      if(col.saleCum>=0){ const v=num(row[col.saleCum]); if(v!=null) rec.saleCumManual=v; }
+      const hasSale=['shipPrevKg','shipCurKg','salePrev','saleCur'].some(f=>rec[f]!=null);
+      const lastData=ds.length;
+      if(Object.keys(rec).length){ out.d[d]=rec; any=true; }
+      if(col.orderT>=0){ const t=num(row[col.orderT]); out.hol[d]= t==null; if(t!=null) out.s.orderT=t; }
+      if(col.saleTarget>=0){ const t=num(row[col.saleTarget]); if(t!=null) out.s.saleTarget=t; }
+      const sun=parseYmd(d).getDay()===0;
+      if(hasSale && sun) out.holSale[d]=false;
+    }
+    // วันขายที่ผ่านมาแล้วแต่ไม่มียอด (ไม่ใช่อาทิตย์) = วันหยุดขาย — นับเฉพาะถึงวันสุดท้ายที่มียอด
+    const saleDays=Object.keys(out.d).filter(d=>['shipPrevKg','shipCurKg','salePrev','saleCur'].some(f=>out.d[d][f]!=null)).sort();
+    const lastSale=saleDays[saleDays.length-1];
+    dates.forEach(d=>{ if(lastSale && d<lastSale && !saleDays.includes(d) && parseYmd(d).getDay()!==0) out.holSale[d]=true; });
+    let m;
+    if((m=title.match(/\(([\d,]+)\s*ตัน\/เดือน\s*([\d.]+)\s*ตัน\/วัน\)/))){ out.s.shipMonth=num(m[1]); out.s.shipDay=num(m[2]); }
+    if((m=title.match(/\(([\d.]+)\s*บาท\/ก\.ก\.\)/))) out.s.price=num(m[1]);
+    if((m=title.match(/วันขาย\s*([\d]+)\s*วันผลิต/))) out.s.prodDays=num(m[1]);
+    if(any) months[ym]=out;
+  }
+  if(!Object.keys(months).length) warns.push('ไม่พบบล็อกรายงานของปี 2026');
+  return {kind:'sales',name,sheet:sn,months,warns};
+}
+function calcSales(ym, upto){
+  const s=getSaleSet(ym); const M=getMonth(ym); const dates=monthDates(ym);
+  const C=calcMonth(ym,upto); const li=C.lastIdx<0?-1:C.lastIdx;
+  const orderDay=d=>!isHoliday(d), saleDay=d=>!isSaleHoliday(d);
+  const totalSale=dates.filter(saleDay).length, totalOrderDays=dates.filter(orderDay).length;
+  const rows=[]; let tCum=0,oCum=0,kgCum=0,bCum=0,saleN=0;
+  dates.forEach((d,i)=>{
+    const r=M.d[d]||{}; const past=i<=li;
+    const oT=orderDay(d)?s.orderT:null; if(oT) tCum+=oT;
+    const ord=C.s.order[i]!=null?C.s.order[i]:(past&&r.orderTotal!=null?r.orderTotal:null);
+    if(past&&ord!=null) oCum+=ord;
+    const remain=dates.slice(i).filter(orderDay).length;
+    const has=['shipPrevKg','shipCurKg','salePrev','saleCur'].some(k=>r[k]!=null);
+    const kg=has?(r.shipPrevKg||0)+(r.shipCurKg||0):null, baht=has?(r.salePrev||0)+(r.saleCur||0):null;
+    if(past&&kg!=null) kgCum+=kg;
+    if(past&&saleDay(d)) saleN++;
+    if(past){ if(r.saleCumManual!=null) bCum=r.saleCumManual; else if(baht!=null) bCum+=baht; }
+    const sd=past&&saleDay(d)&&(has||r.saleCumManual!=null);
+    const av=sd&&saleN?bCum/saleN:null;
+    const fc=av!=null?av*totalSale:null;
+    rows.push({d, oT, tCum, ord:past?ord:null, oCum:past&&orderDay(d)?oCum:null, gap:past&&orderDay(d)?tCum-oCum:null,
+      need:past&&orderDay(d)&&remain?s.orderT+(tCum-oCum)/remain:null,
+      kP:r.shipPrevKg??null, kC:r.shipCurKg??null, kg, kgCum:sd?kgCum:null, bP:r.salePrev??null, bC:r.saleCur??null, baht,
+      bCum:sd?bCum:null, manual:r.saleCumManual!=null, av, price:sd&&kgCum?bCum/kgCum:null, fc, fcP:fc!=null?fc+(r.pendValNet||0):null,
+      pv:r.pendValNet??null, p8:r.pendVal8??null, tgt:s.saleTarget, gapB:fc!=null?fc-s.saleTarget:null, hol:!saleDay(d), ohol:!orderDay(d), past});
+  });
+  const lastRow=[...rows].reverse().find(x=>x.bCum!=null)||{};
+  const lastOrd=[...rows].reverse().find(x=>x.oCum!=null)||{};
+  return {ym,s,rows,totalSale,totalOrderDays,saleN:rows.filter(x=>x.past&&!x.hol).length,upto:C.lastDate,
+    sum:{tMonth:s.orderT*totalOrderDays,oCum:lastOrd.oCum,gap:lastOrd.gap,need:lastOrd.need,kgCum:lastRow.kgCum,bCum:lastRow.bCum,av:lastRow.av,price:lastRow.price,fc:lastRow.fc,fcP:lastRow.fcP,gapB:lastRow.gapB}};
+}
+function renderSales(){
+  const ym=curYm(); const box=$('#salesBox'); box.innerHTML='';
+  const X=calcSales(ym,curUpto()); const s=X.s; const be=+ym.slice(0,4)+543, m=+ym.slice(5);
+  const up=X.upto?parseYmd(X.upto):null;
+  const f0=v=>v==null?'':fmt(v,0), f1=v=>v==null?'':fmt(v,1), f2=v=>v==null?'':fmt(v,2), fk=v=>v==null||v===0?'':fmt(v,0);
+  const prevM=m===1?12:m-1;
+  const card=document.createElement('div'); card.className='card';
+  card.innerHTML=`<div class="cardbar"><span class="hint" style="margin-right:auto;align-self:center">ช่อง <b>ยอดขายสะสม</b> กรอกทับได้ (สีเหลือง = กรอกเอง, ลบค่าออก = กลับไปคำนวณ) · ติ๊ก "หยุดขาย" เพื่อตั้งวันหยุดขาย · วันหยุดออเดอร์ตั้งที่แท็บตารางเดือน</span>
+     <button class="btn sm" data-copy>คัดลอกรูป</button><button class="btn sm" data-dl>ดาวน์โหลด PNG</button></div>
+   <div class="shot"><div class="sr-scroll"><table class="sr">
+    <tr class="t1"><td colspan="7" class="h-or">เป้าและออเดอร์เดือน ${m}/${be}  ${f0(s.orderT)}ตัน/วัน  ${fmt(X.sum.tMonth,0)}ตัน/เดือน</td>
+      <td colspan="16" class="h-sl">รายงานยอดขายและส่งผ้า วันที่ ${up?`${up.getDate()}/${m}/${be}`:'-'}   ${X.saleN} วันขาย (จากทั้งหมด ${X.totalSale} วันขาย ${s.prodDays||X.totalSale} วันผลิต) (${fmt(s.shipMonth,0)}ตัน/เดือน ${fmt(s.shipDay,0)}ตัน/วัน) (${fmt(s.price,0)}บาท/ก.ก.)</td><td class="noshot"></td></tr>
+    <tr class="tsum"><td>รวมสะสม</td><td></td><td>${fmt(X.sum.tMonth,0)} ตัน</td><td></td><td>${f0(X.sum.oCum)} ตัน</td><td>${f1(X.sum.gap)} ตัน</td><td>${f1(X.sum.need)} ตัน</td>
+      <td colspan="3"></td><td class="c-gr">${f0(X.sum.kgCum)} ก.ก.</td><td colspan="3"></td><td class="c-pe">${f0(X.sum.bCum)} บาท</td><td class="c-lg">${f0(X.sum.av)} บาท</td><td>${f2(X.sum.price)} บาท</td><td>${f0(X.sum.fc)} บาท</td><td class="c-red">${f0(X.sum.fcP)} บาท</td><td colspan="2"></td><td class="c-gr">${fmt(s.saleTarget,0)} บาท</td><td class="neg">${f0(X.sum.gapB)} บาท</td><td class="noshot"></td></tr>
+    <tr class="th"><th>วันที่</th><th class="h-o">เป้าต่อวัน</th><th class="h-o">เป้าสะสม</th><th class="h-y">ออเดอร์จริง</th><th class="h-y">ออเดอร์สะสม</th><th class="h-y">ห่างจากเป้า</th><th class="h-y">ต้องปรับเป้าเพิ่มต่อวัน</th>
+      <th class="h-c">ส่งผ้าได้(ก.ก.) ผ้าค้างส่ง เดือน ${prevM}</th><th class="h-c">ส่งผ้าได้(ก.ก.) ผ้าเสร็จในเดือน ${m}</th><th class="h-c">รวมส่งผ้าได้</th><th class="h-g">น้ำหนักส่งผ้าสะสม (ก.ก.)</th>
+      <th class="h-b">ยอดขาย(บาท) ผ้าค้างส่ง</th><th class="h-b">ยอดขาย(บาท) ผ้าเสร็จในเดือน</th><th class="h-b">รวมยอดขาย</th><th class="h-p">ยอดขายสะสม(บาท)</th><th class="h-lg">ยอดขาย AV (บาท/วัน)</th><th class="h-b">ราคาขายเฉลี่ย (บาท/ก.ก.)</th>
+      <th class="h-b">คาดการณ์ยอดขาย จบสิ้นเดือน(${X.totalSale}วันขาย) (บาท)</th><th class="h-r">คาดการณ์ยอดขายจบสิ้นเดือน+มูลค่าผ้าค้างส่ง</th><th class="h-b">มูลค่าผ้าค้างส่ง-มูลค่าค้างส่งหลัง 08:00</th><th class="h-b">มูลค่าค้างส่งหลัง 08:00</th><th class="h-g">เป้ายอดขาย</th><th class="h-b">ห่างจากเป้าหมาย (บาท)</th><th class="noshot">หยุดขาย</th></tr>
+    ${X.rows.map(r=>{ const dd=parseYmd(r.d); const lab=`${pad2(dd.getDate())}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dd.getMonth()]}`;
+      if(r.hol) return `<tr class="hol"><td>${lab}</td><td></td><td>${f0(r.tCum)}</td><td colspan="20"></td><td class="noshot"><input type="checkbox" data-hs="${r.d}" checked></td></tr>`;
+      return `<tr class="${r.d===X.upto?'today':''}"><td>${lab}</td><td>${r.oT??''}</td><td>${f0(r.tCum)}</td><td>${r.ord==null?'':fmt(r.ord,2).replace(/\.?0+$/,'')}</td><td>${f1(r.oCum)}</td><td>${f1(r.gap)}</td><td>${f1(r.need)}</td>
+      <td>${fk(r.kP)}</td><td>${fk(r.kC)}</td><td>${f0(r.kg)}</td><td class="c-g">${f0(r.kgCum)}</td><td>${fk(r.bP)}</td><td>${fk(r.bC)}</td><td>${f0(r.baht)}</td>
+      <td class="c-p in ${r.manual?'man':''}">${r.past&&!r.hol?`<input data-cum="${r.d}" value="${r.manual?Math.round(M_cum(r.d)):''}" placeholder="${f0(r.bCum)}">`:''}<span class="pv">${f0(r.bCum)}</span></td>
+      <td class="c-lg">${f0(r.av)}</td><td>${f2(r.price)}</td><td>${f2(r.fc)}</td><td class="c-red">${f2(r.fcP)}</td><td>${f0(r.pv)}</td><td>${f0(r.p8)}</td><td class="c-g">${r.past||r.fc!=null?fmt(r.tgt,0)+' บาท':''}</td><td class="neg">${r.gapB==null?'':fmt(Math.abs(r.gapB),0)}</td>
+      <td class="noshot"><input type="checkbox" data-hs="${r.d}"></td></tr>`; }).join('')}
+   </table></div></div>`;
+  box.appendChild(card);
+  $$('#salesBox input[data-hs]').forEach(c=>c.onchange=()=>{ const M=getMonth(ymOf(c.dataset.hs)); M.holSale=M.holSale||{}; M.holSale[c.dataset.hs]=c.checked; save(); renderSales(); });
+  $$('#salesBox input[data-cum]').forEach(i=>{ i.onchange=()=>{ const d=i.dataset.cum; const M=getMonth(ymOf(d)); const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{}; const v=num(i.value);
+      if(v==null){ delete cur.saleCumManual; delete cur._src.saleCumManual; } else { cur.saleCumManual=v; cur._src.saleCumManual='manual'; } save(); renderSales(); };
+    i.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); i.blur(); } }; });
+  wireShot(card,`ยอดขายและส่งผ้า-${X.upto||ym}`);
+}
+const M_cum=d=>{ const M=S.months[ymOf(d)]; return M&&M.d[d]?M.d[d].saleCumManual:null; };
+
 /* Export ตารางเดือนตามที่เห็นบนจอ (ทุกวันของเดือน + แถวสรุปถึง "ข้อมูลถึงวันที่") */
 function exportGrid(){
   flushDraft();

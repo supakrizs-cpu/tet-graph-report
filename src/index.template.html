@@ -13,6 +13,7 @@
     <button data-v="upload" class="on">อัปโหลด</button>
     <button data-v="grid">ตารางเดือน</button>
     <button data-v="charts">กราฟรายวัน</button>
+    <button data-v="sales">ยอดขาย & ส่งผ้า</button>
     <button data-v="year">สรุปปี</button>
     <button data-v="settings">ตั้งค่า</button>
   </nav>
@@ -27,7 +28,7 @@
   <section class="view on" id="v-upload">
     <div class="drop" id="drop">
       <b>ลากไฟล์ Excel มาวางที่นี่</b> หรือคลิกเพื่อเลือก (เลือกหลายไฟล์พร้อมกันได้)
-      <div class="hint" style="margin-top:6px">รองรับ: ไฟล์ "xx.xx.xxxx สรุป.xlsx" (เปิดบิลสั่งย้อม) · ไฟล์ "ค้างส่ง xx.xx.xxxx.xlsx" · ไฟล์ "สรุปปี2026.xlsx" (นำเข้าย้อนหลัง)</div>
+      <div class="hint" style="margin-top:6px">รองรับ: "xx.xx.xxxx สรุป.xlsx" (เปิดบิลสั่งย้อม) · "ค้างส่ง xx.xx.xxxx.xlsx" · "เปิดบิลขาย xx.xx.xxxx.xlsx" · "สรุปปี2026.xlsx" และไฟล์รายงานยอดขายเดิม (นำเข้าย้อนหลัง)</div>
       <input type="file" id="fileIn" multiple accept=".xlsx,.xls,.xlsm" hidden>
     </div>
     <div id="pvList"></div>
@@ -68,6 +69,9 @@
     <div id="chartsB" style="display:none"></div>
     <div id="chartsM" style="display:none"></div>
   </section>
+
+  <!-- ยอดขาย & ส่งผ้า -->
+  <section class="view" id="v-sales"><div id="salesBox"></div></section>
 
   <!-- สรุปปี -->
   <section class="view" id="v-year">

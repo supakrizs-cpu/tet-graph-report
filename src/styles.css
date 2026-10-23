@@ -127,6 +127,28 @@ table.xa td.lab{text-align:left;white-space:normal;line-height:1.15}
 .combo-head .sub{font-size:13px;color:var(--ink2);font-weight:400}
 .combo-sep{border-top:1px solid var(--line);margin:0 14px}
 
+/* sales report (เหมือน Excel) */
+.sr-scroll{overflow-x:auto}
+table.sr{border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.sr td,table.sr th{border:1px solid #9a9a9a;padding:3px 6px;text-align:right}
+table.sr td:first-child{text-align:center;background:#d9d9d9}
+table.sr tr.th th{font-weight:700;text-align:center;white-space:normal;min-width:72px;max-width:120px;line-height:1.2;color:#111}
+table.sr tr.t1 td{font-weight:700;font-size:14px;text-align:center}
+.h-or{background:#ffc000}.h-sl{background:#fff2cc;text-align:left!important}
+table.sr tr.tsum td{font-weight:700;background:#fff;border-color:#9a9a9a}
+table.sr tr.tsum td:first-child{background:#fff;text-align:left}
+.h-o{background:#ffc000}.h-y{background:#ffe699}.h-c{background:#9ff3ff}.h-g{background:#00b050;color:#fff!important}.h-b{background:#bdd7ee}.h-p{background:#f8cbad}.h-lg{background:#c6e0b4}.h-r{background:#ffd7d7;color:#c00000!important}
+td.c-g{background:#00b050;color:#000;font-weight:700}td.c-p{background:#fbe5d6}td.c-lg{background:#e2efda}td.c-red{color:#c00000;font-weight:700}td.c-gr{background:#00b050}td.c-pe{background:#f8cbad}
+table.sr td.neg{color:#c00000;font-weight:700}
+table.sr tr.hol td{background:#ff0000!important;color:#fff}
+table.sr tr.today td{font-weight:700}
+table.sr td.in{position:relative;min-width:110px}
+table.sr td.in input{position:absolute;inset:0;width:100%;border:0;background:transparent;text-align:right;padding:3px 6px;font:inherit;color:transparent}
+table.sr td.in input:focus{color:#000;background:#fff;outline:2px solid #2a78d6}
+table.sr td.in input:focus + .pv{visibility:hidden}
+table.sr td.man{background:#ffe08a!important}
+.noshot{background:#fff!important;border:0!important}
+
 /* year */
 table.yr{border-collapse:collapse;font-size:13px;margin-top:8px;font-variant-numeric:tabular-nums;width:100%}
 table.yr td,table.yr th{border:1px solid var(--line);padding:4px 6px;text-align:right}
