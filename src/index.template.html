@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>กราฟรายงาน TET</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1f4e79">
+<link rel="icon" href="icon-192.png">
 <style>/*CSS*/</style>
 </head>
 <body>
@@ -23,6 +26,7 @@
     <span id="sync" class="sync"></span>
   </div>
 </header>
+<div id="newver" class="newver" hidden></div>
 <main>
   <!-- อัปโหลด -->
   <section class="view on" id="v-upload">
@@ -90,7 +94,9 @@
   <button class="btn pri" id="lgBtn" style="width:100%">เข้าสู่ระบบ</button>
   <div class="hint" id="lgMsg" style="margin-top:8px;color:var(--bad)"></div>
 </div></div>
-<script>if(location.protocol==="https:")document.write('<script src="supabase.js"><\/script><script src="supabase-config.js"><\/script>')</script>
+<script>/*LIB_SB*/</script>
+<script>/*SB_CFG*/</script>
+<script>/*VER*/</script>
 <script>/*LIB_XLSX*/</script>
 <script>/*LIB_CHART*/</script>
 <script>/*LIB_DL*/</script>

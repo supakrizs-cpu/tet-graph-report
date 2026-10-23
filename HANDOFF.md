@@ -13,11 +13,11 @@
 | ช่องทาง | ลิงก์/ไฟล์ | โหมด | เก็บข้อมูลที่ |
 |---|---|---|---|
 | **ออนไลน์ (หลัก)** | `https://tet-graph-report.supakrizs.workers.dev` (Cloudflare Workers ← `public/`) | ออนไลน์ ต้องล็อกอิน | Supabase ตาราง `graph_report` (ทุกเครื่องเห็นชุดเดียวกัน) |
-| GitHub Pages | https://supakrizs-cpu.github.io/tet-graph-report/ (← `index.html` ที่ root) | เครื่อง | localStorage `tet-graph-report-v1` |
-| ไฟล์ในเครื่อง | `dist/TET-กราฟรายงาน.html` (ผู้ใช้วางที่ `D:\TET กราฟรายงงาน\`) | เครื่อง ไม่ต้องมีเน็ต | localStorage `tet-graph-report-v1` |
+| ไฟล์ในเครื่อง | `dist/TET-กราฟรายงาน.html` (ผู้ใช้วางที่ `D:\TET กราฟรายงงาน\`) | **ออนไลน์เหมือนเว็บ** (ตั้งแต่ 23 ต.ค.) ล็อกอินแยก 1 ครั้ง | Supabase เดียวกัน |
+| ~~GitHub Pages~~ | ผู้ใช้ตกลงปิด (Q10 23 ต.ค.) — `index.html` ที่ root ยัง build อยู่แต่ไม่ใช้ | | |
 
-- **ห้ามเปลี่ยนชื่อ localStorage key** (ข้อมูลผู้ใช้จะหาย) · ข้อมูลโหมดเครื่องกับออนไลน์แยกกัน ย้ายด้วยไฟล์ JSON (ตั้งค่า → บันทึก/โหลดไฟล์สำรอง)
-- โหมดออนไลน์ทำงานเมื่อ: เปิดผ่าน `https:` + โหลด `supabase.js` และ `supabase-config.js` สำเร็จ (ตัวแปร `IS_SB`) — GitHub Pages ไม่มีสองไฟล์นี้ที่ root จึงเป็นโหมดเครื่อง
+- **ห้ามเปลี่ยนชื่อ localStorage key** · supabase-js + `supabase-config.js` ฝังในไฟล์ html แล้ว → **ทุกช่องทางเป็นโหมดออนไลน์** (`IS_SB`) · ข้อมูลโหมดเครื่องเก่าใน key `tet-graph-report-v1` ไม่ถูกใช้แล้ว (ผู้ใช้เลือกทิ้ง Q9) แต่ไม่ได้ลบ
+- **ใช้ออฟไลน์ได้ (23 ต.ค. — ถาม-ตอบ /grill-me ดูหัวข้อ 2.1)**
 - **ภาษา UI:** ไทยอย่างเดียว
 - **repo เป็น public** → ห้าม commit ไฟล์ Excel/JSON ที่มีข้อมูลจริง (`.gitignore` กัน `*.xlsx`, `*.json` ไว้แล้ว)
 
@@ -30,7 +30,7 @@
 - **ห้ามแก้ `index.html`, `public/index.html`, `dist/*.html` ตรง ๆ** — build ออกมาจาก `src/` (commit ทุกไฟล์ เพราะ Cloudflare/Pages ไม่ได้ build ให้)
 - Cloudflare: Workers Builds ผูก repo นี้ branch `main`, build command ว่าง, deploy command `npx wrangler deploy` (`wrangler.jsonc` → assets `./public`) — แบบเดียวกับ repo `tet-sale`
 - push แล้วตรวจที่ Cloudflare → Workers & Pages → tet-graph-report → Deployments ต้อง Ready/Active · พังให้ Rollback เวอร์ชันก่อน
-- `build.py` แทนที่ placeholder ใน `src/index.template.html`: `/*CSS*/ /*LIB_XLSX*/ /*LIB_CHART*/ /*LIB_DL*/ /*LIB_H2C*/ /*DEFAULTS*/ /*APP*/` (ต้องมีจุดละ 1 ครั้ง, ใช้ `str.replace` ของ Python — ปลอดภัยกับ `$&` ในไลบรารี)
+- `build.py` แทนที่ placeholder ใน `src/index.template.html`: `/*CSS*/ /*LIB_XLSX*/ /*LIB_CHART*/ /*LIB_DL*/ /*LIB_H2C*/ /*LIB_SB*/ /*SB_CFG*/ /*VER*/ /*DEFAULTS*/ /*APP*/` · และเขียน `public/version.json`, `public/sw.js` (จาก `src/sw.js`), `public/tet-graph-report.html` (ไฟล์ให้ดาวน์โหลด) · `APP_VER` = เวลา build (ต้องมีจุดละ 1 ครั้ง, ใช้ `str.replace` ของ Python — ปลอดภัยกับ `$&` ในไลบรารี)
 - หลัง build ส่งไฟล์ `dist/TET-กราฟรายงาน.html` ให้ผู้ใช้วางทับใน `D:\TET กราฟรายงงาน\` ด้วย (ผู้ใช้ใช้ทั้งในเครื่องและบนเว็บ)
 
 | ไฟล์ | หน้าที่ |
@@ -42,10 +42,22 @@
 | `vendor/` | SheetJS 0.18.5, Chart.js 4.4.4, chartjs-plugin-datalabels 2.2.0, html2canvas 1.4.1 (ฝังในไฟล์ ไม่ใช้ CDN) |
 | `build.py` | รวมเป็นไฟล์เดียว → `dist/TET-กราฟรายงาน.html` + `index.html` |
 | `.nojekyll` | ให้ GitHub Pages ไม่ประมวลผล Jekyll |
-| `public/` | ไฟล์ขึ้น Cloudflare: `index.html` (build), `supabase.js` (supabase-js 2.117.2 UMD — คัดลอกจาก tet-sale), `supabase-config.js`, `_headers` |
+| `vendor/supabase.js` | supabase-js 2.117.2 UMD (คัดลอกจาก tet-sale) ฝังในไฟล์ |
+| `public/` | ไฟล์ขึ้น Cloudflare: `index.html` (build), `supabase-config.js` (ฝังตอน build), `sw.js`, `manifest.webmanifest`, `icon-*.png`, `version.json`, `tet-graph-report.html`, `_headers` |
 | `wrangler.jsonc` | ตั้งค่า Cloudflare Workers (static assets) |
 | `supabase-setup.sql` | สร้างตาราง `graph_report` + RLS (ผู้ใช้รันเองใน SQL Editor, รันซ้ำได้) |
-| `tests/` | `online_test.py` + `mock-supabase.js` — ทดสอบโหมดออนไลน์ด้วย Supabase จำลอง |
+| `tests/` | `offline_test.py` + `mock-supabase.js` — ทดสอบออนไลน์/ออฟไลน์/รวมรายช่อง 2 เครื่องด้วย Supabase จำลอง |
+
+### 2.1 ซิงก์ + ออฟไลน์ (`Cloud` ส่วนที่ 2 ใน `app.js`) — ผู้ใช้ตอบ 23 ต.ค.
+- เก็บในเครื่อง 3 key: `…-online-cache` (S), `…-online-base` (ข้อมูลเซิร์ฟเวอร์ ณ ซิงก์ล่าสุด), `…-online-meta` ({editAt, user})
+- **รอส่ง** = ส่วนต่าง S กับ base (นับรายช่อง ไม่นับ `_src`) — อยู่รอดข้ามการปิดเปิด · ป้ายมุมขวาบน: ✅ ออนไลน์ / 🟡 รอส่ง N ช่อง [ส่งตอนนี้] / 🟠 ออฟไลน์ / 🔑 ต้องล็อกอินใหม่
+- `Cloud.sync()` = select ทั้งตาราง → `merge3(base, ของเครื่อง, ของเซิร์ฟเวอร์)` รายช่อง (Q4 b): ช่องที่เครื่องนี้แก้ใช้ของเครื่องนี้ ช่องอื่นใช้ของเซิร์ฟเวอร์ · **ชนช่องเดียวกัน = ใครแก้ทีหลังชนะ** (`meta.editAt` เทียบ `updated_at` ของแถว) → upsert เฉพาะแถวที่ต่างจากเซิร์ฟเวอร์ · ไม่ต้องเพิ่มตาราง/SQL
+- เครื่องที่ยังไม่เคยซิงก์ (`base` = null): เซิร์ฟเวอร์มีข้อมูล → ใช้ของเซิร์ฟเวอร์ทั้งหมด / เซิร์ฟเวอร์ว่าง → ส่งของเครื่องขึ้น
+- ซิงก์เมื่อ: แก้ข้อมูล (หน่วง 0.7 วิ), event `online`, กลับมาที่หน้า (visibilitychange), ปุ่ม, และลองใหม่ทุก 60 วิถ้าค้าง
+- เปิดตอนไม่มีเน็ต: ถ้ามี base + เคยล็อกอิน → แสดงแคชทันที ไม่ถามล็อกอิน (Q5 a) · token หมดอายุ → 🔑 ล็อกอินใหม่ (ข้อมูลรอส่งไม่หาย) · ออกจากระบบไม่ได้ถ้ายังมีรอส่ง
+- เว็บ: service worker `sw.js` (network-first, ไม่แตะคำขอ Supabase) → เปิดหน้าเว็บได้ตอนไม่มีเน็ต + ติดตั้งเป็นแอปได้ (manifest) (Q6 a)
+- ไฟล์ในเครื่อง (`file:`): ตอนมีเน็ตอ่าน `SITE/version.json` (CORS เปิดใน `_headers`) ถ้าไม่ตรง `APP_VER` แสดงแถบ "มีเวอร์ชันใหม่ [ดาวน์โหลด]" (Q8 b)
+- ทดสอบในเครื่องแบบไม่ซิงก์: `add_init_script('window.__localMode=1')` · Supabase จำลอง: `window.__mockSupabase`
 
 ## 2. ไฟล์ Excel ที่ระบบอ่าน (ตรวจชนิดจาก "หัวคอลัมน์" ไม่ใช่ชื่อไฟล์ ยกเว้นข้อ ค)
 
@@ -172,7 +184,7 @@
 1. `python build.py`
 2. เปิด `index.html` ใน Chrome (ตั้ง timezone Asia/Bangkok ถ้าทดสอบอัตโนมัติ) → อัปโหลด `สรุปปี2026.xlsx` → บันทึก → ลบช่องจากไฟล์ของวันที่ 20/10 → อัปโหลดไฟล์ `20.10.2026 สรุป.xlsx` + `ค้างส่ง 20.10.2026_ตามรูป.xlsx` → เทียบตัวเลขหัวข้อ 4
 3. เปิดครบทุกแท็บ ไม่มี error ใน console · ลองดาวน์โหลด PNG ทั้ง 3 แบบ + Export Excel + บันทึก/โหลด JSON
-4. โหมดออนไลน์: `python tests/online_test.py "D:/TET กราฟรายงงาน"` (ล็อกอินผิด/ถูก, อัปโหลด, push เฉพาะเดือนที่แก้, error + ลองใหม่, เครื่องที่ 2 ดึงจากเซิร์ฟเวอร์, ออกจากระบบ) — **ห้ามทดสอบกับ Supabase จริงด้วยการลบ/เขียนทับข้อมูล**
+4. ออนไลน์/ออฟไลน์: `python tests/offline_test.py "D:/TET กราฟรายงงาน"` ต้องขึ้น ALL PASS (เว็บ + ไฟล์ file://, ออฟไลน์แก้แล้วปิดเปิด, รวมรายช่อง, ชนกัน 2 แบบ, แถบเวอร์ชันใหม่, ออกจากระบบตอนรอส่ง) · เปิด `index.html` แบบ file:// ทดสอบสูตรต้องใส่ `window.__localMode=1` — **ห้ามทดสอบกับ Supabase จริงด้วยการลบ/เขียนทับข้อมูล**
 5. ไฟล์ตัวอย่างอยู่ที่เครื่องผู้ใช้ `D:\TET กราฟรายงงาน\` (ไม่อยู่ใน repo — มีข้อมูลลูกค้า)
 
 ## 8. ข้อตกลงกับผู้ใช้ (จากการถาม-ตอบ 21 ต.ค.)
@@ -180,7 +192,7 @@
 - ผู้ใช้ = หัวหน้าฝ่าย SALE/ขนส่ง/วางแผน TET · ชอบให้ลงมือเลย · ตอบสั้น · แก้ตรงจุด
 - ส่งรายงานทุกวัน (รายวัน) และทุกเดือน (สรุปปี + กราฟ ณ สิ้นเดือน)
 - เก็บข้อมูล: **ออนไลน์ Cloudflare + Supabase** (สั่ง 21 ต.ค. "deploy cloudflare + ใช้ supabase ได้เลย") แบบเดียวกับ `supakrizs-cpu/tet-sale` · ตาราง/สิทธิ์ใหม่ = เพิ่ม SQL ใน `supabase-setup.sql` ให้ผู้ใช้รันเอง · **ห้ามขอ/commit secret หรือ service_role key**
-- ยังเก็บไฟล์ standalone ในเครื่อง + GitHub Pages ไว้ (โหมดเครื่อง)
+- (23 ต.ค.) ไฟล์ในเครื่องเปลี่ยนเป็นออนไลน์ + ใช้ออฟไลน์ได้ · ปิด GitHub Pages · ใช้ 1–2 เครื่อง ผู้ใช้คนเดียว
 - ภาษาไทยอย่างเดียว
 - ห้ามใช้ `alert/confirm/prompt` (ใช้ toast + กดซ้ำยืนยัน)
 
@@ -191,7 +203,7 @@
 - [ ] เป้าส่งผ้า: ตาราง Excel ใช้ 42 แต่หัวกราฟเดิมเขียน 44 — ตอนนี้ใช้ 42
 - [x] (21 ต.ค.) ผูก Cloudflare แล้ว เว็บ workers.dev ล็อกอิน `sale` ได้ ข้อมูลออนไลน์ขึ้นแล้ว (เห็นสถานะ ✅ ออนไลน์)
 - [ ] **ตรวจ auto deploy:** build ที่ผ่านมาเป็น "Manually deployed" ทั้งหมด — push `6646c99` (commit ว่าง "ทดสอบ Cloudflare auto deploy" 22:40) เพื่อทดสอบ · ถ้า Cloudflare ไม่ build เอง ให้ผู้ใช้ Disconnect/Connect repo ใหม่ใน Settings → Builds (ค่าตั้งเดิม: branch main, build ว่าง, deploy `npx wrangler deploy`, root `/`)
-- [ ] ปิด GitHub Pages: 22 ต.ค. ผู้ใช้สับสน — เปิด GitHub Pages แล้วไม่เห็นข้อมูลวันที่ 21 (อัปไว้ที่ workers.dev) · แนะนำให้ใช้ **workers.dev อย่างเดียว** และ Unpublish Pages แล้ว (ผู้ใช้ตอบ ok — ยังไม่ยืนยันว่าปิดแล้ว)
+- [ ] ปิด GitHub Pages (ผู้ใช้ตกลงแล้ว 23 ต.ค. Q10 — ต้องกดเองใน GitHub Settings → Pages → Unpublish): 22 ต.ค. ผู้ใช้สับสน — เปิด GitHub Pages แล้วไม่เห็นข้อมูลวันที่ 21 (อัปไว้ที่ workers.dev) · แนะนำให้ใช้ **workers.dev อย่างเดียว** และ Unpublish Pages แล้ว (ผู้ใช้ตอบ ok — ยังไม่ยืนยันว่าปิดแล้ว)
 - [ ] แท็บยอดขาย: ผู้ใช้ยังไม่ได้ลองกับข้อมูลจริงวันที่ 23 (ไฟล์เปิดบิลขาย + ค้างส่ง ที่มีคอลัมน์มูลค่า)
 - [ ] รหัสเฉด **TL**, **QM** ไม่มีในตารางจับคู่ (ไฟล์ 21.10 → นับเป็น "สี" ตรงกับ Excel) — ถามผู้ใช้ว่าเป็นเฉดอะไรก่อนเพิ่มใน `src/defaults.js` (อย่าเดา)
 - ผู้ใช้ตั้งเป้าออเดอร์ 41 ตัน/วันในหน้า GitHub Pages (ข้อมูลเครื่อง) — ถ้าเป็นเป้าจริงต้องตั้งใน workers.dev ด้วย

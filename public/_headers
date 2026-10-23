@@ -7,3 +7,11 @@
   Cache-Control: no-cache
 /supabase-config.js
   Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache
+/version.json
+  Cache-Control: no-cache
+  Access-Control-Allow-Origin: *
+/tet-graph-report.html
+  Cache-Control: no-cache
+  Content-Disposition: attachment; filename="TET-graph-report.html"; filename*=UTF-8''TET-%E0%B8%81%E0%B8%A3%E0%B8%B2%E0%B8%9F%E0%B8%A3%E0%B8%B2%E0%B8%A2%E0%B8%87%E0%B8%B2%E0%B8%99.html

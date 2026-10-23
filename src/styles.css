@@ -169,3 +169,7 @@ table.map input,table.map select{border:0;padding:4px;width:100%;min-width:60px;
 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start}
 details.card summary{cursor:pointer;padding:12px 16px;font-weight:600}
 @media (max-width:900px){.b-grid{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.ctl{margin-left:0}}
+.sync .pend{color:#b35c00}
+.sync .off{color:#b35c00;font-weight:600}
+.newver{background:#fff4c2;border-bottom:1px solid #e6c84a;padding:6px 14px;font-size:13px;display:flex;gap:8px;align-items:center}
+.newver[hidden]{display:none}
