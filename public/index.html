@@ -148,7 +148,9 @@ td.c-g{background:#00b050;color:#000;font-weight:700}td.c-p{background:#fbe5d6}t
 table.sr td.neg{color:#c00000;font-weight:700}
 table.sr tr.hol td{background:#ff0000!important;color:#fff}
 table.sr tr.today td{font-weight:700}
-table.sr td.in{position:relative;min-width:110px}
+table.sr td.in{position:relative;cursor:text}
+table.sr td.c-p.in{min-width:110px}
+table.sr td.in:hover{outline:1px dashed #2a78d6;outline-offset:-2px}
 table.sr td.in input{position:absolute;inset:0;width:100%;border:0;background:transparent;text-align:right;padding:3px 6px;font:inherit;color:transparent}
 table.sr td.in input:focus{color:#000;background:#fff;outline:2px solid #2a78d6}
 table.sr td.in input:focus + .cv{visibility:hidden}
@@ -365,6 +367,7 @@ const SFIELDS = [
   {k:'pendVal8',   l:'มูลค่าค้างส่งหลัง 08:00 (บาท)', dec:0},
   {k:'saleCumManual', l:'ยอดขายสะสม (บาท) กรอกเอง', dec:2},
   {k:'orderTotal', l:'ออเดอร์จริง (นำเข้า)', dec:3},
+  {k:'orderManual', l:'ออเดอร์จริง (กรอกเอง)', dec:3},
 ];
 const SK = Object.fromEntries(SFIELDS.map(f=>[f.k,f]));
 const LBL = k=>(FK[k]||SK[k]||{l:k}).l;
@@ -708,7 +711,7 @@ function setVal(d,k,raw){
 const DRAFT={t:null,fn:null};
 function draft(fn){ clearTimeout(DRAFT.t); DRAFT.fn=fn; DRAFT.t=setTimeout(flushDraft,400); }
 function flushDraft(){ clearTimeout(DRAFT.t); DRAFT.t=null; const f=DRAFT.fn; DRAFT.fn=null; if(f) f(); }
-const typing=()=>{ const a=document.activeElement; return !!(a && a.matches && a.matches('#grid input[data-k], #quickForm input[data-q]')); };
+const typing=()=>{ const a=document.activeElement; return !!(a && a.matches && a.matches('#grid input[data-k], #quickForm input[data-q], #salesBox input[data-ed]')); };
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') flushDraft(); });
 window.addEventListener('pagehide',flushDraft);
 function refresh(){
@@ -1295,7 +1298,7 @@ function calcSales(ym, upto){
   dates.forEach((d,i)=>{
     const r=M.d[d]||{}; const past=i<=li;
     const oT=orderDay(d)?s.orderT:null; if(oT) tCum+=oT;
-    const ord=C.s.order[i]!=null?C.s.order[i]:(past&&r.orderTotal!=null?r.orderTotal:null);
+    const ord=r.orderManual!=null?r.orderManual:C.s.order[i]!=null?C.s.order[i]:(past&&r.orderTotal!=null?r.orderTotal:null);
     if(past&&ord!=null) oCum+=ord;
     const remain=dates.slice(i).filter(orderDay).length;
     const has=['shipPrevKg','shipCurKg','salePrev','saleCur'].some(k=>r[k]!=null);
@@ -1324,7 +1327,7 @@ function renderSales(){
   const f0=v=>v==null?'':fmt(v,0), f1=v=>v==null?'':fmt(v,1), f2=v=>v==null?'':fmt(v,2), fk=v=>v==null||v===0?'':fmt(v,0);
   const prevM=m===1?12:m-1;
   const card=document.createElement('div'); card.className='card';
-  card.innerHTML=`<div class="cardbar"><span class="hint" style="margin-right:auto;align-self:center">ช่อง <b>ยอดขายสะสม</b> กรอกทับได้ (สีเหลือง = กรอกเอง, ลบค่าออก = กลับไปคำนวณ) · ติ๊ก "หยุดขาย" เพื่อตั้งวันหยุดขาย · วันหยุดออเดอร์ตั้งที่แท็บตารางเดือน</span>
+  card.innerHTML=`<div class="cardbar"><span class="hint" style="margin-right:auto;align-self:center">ช่อง ออเดอร์จริง / ส่งผ้าได้ / ยอดขาย / ยอดขายสะสม / มูลค่าค้างส่ง <b>คลิกแก้ได้</b> (สีเหลือง = แก้เอง) · ติ๊ก "หยุดขาย" เพื่อตั้งวันหยุดขาย · วันหยุดออเดอร์ตั้งที่แท็บตารางเดือน</span>
      <button class="btn sm" data-copy>คัดลอกรูป</button><button class="btn sm" data-dl>ดาวน์โหลด PNG</button></div>
    <div class="shot"><div class="sr-scroll"><table class="sr">
     <tr class="t1"><td colspan="7" class="h-or">เป้าและออเดอร์เดือน ${m}/${be}  ${f0(s.orderT)}ตัน/วัน  ${fmt(X.sum.tMonth,0)}ตัน/เดือน</td>
@@ -1335,16 +1338,21 @@ function renderSales(){
       <th class="h-c">ส่งผ้าได้(ก.ก.) ผ้าค้างส่ง เดือน ${prevM}</th><th class="h-c">ส่งผ้าได้(ก.ก.) ผ้าเสร็จในเดือน ${m}</th><th class="h-c">รวมส่งผ้าได้</th><th class="h-g">น้ำหนักส่งผ้าสะสม (ก.ก.)</th>
       <th class="h-b">ยอดขาย(บาท) ผ้าค้างส่ง</th><th class="h-b">ยอดขาย(บาท) ผ้าเสร็จในเดือน</th><th class="h-b">รวมยอดขาย</th><th class="h-p">ยอดขายสะสม(บาท)</th><th class="h-lg">ยอดขาย AV (บาท/วัน)</th><th class="h-b">ราคาขายเฉลี่ย (บาท/ก.ก.)</th>
       <th class="h-b">คาดการณ์ยอดขาย จบสิ้นเดือน(${X.totalSale}วันขาย) (บาท)</th><th class="h-r">คาดการณ์ยอดขายจบสิ้นเดือน+มูลค่าผ้าค้างส่ง</th><th class="h-b">มูลค่าผ้าค้างส่ง-มูลค่าค้างส่งหลัง 08:00</th><th class="h-b">มูลค่าค้างส่งหลัง 08:00</th><th class="h-g">เป้ายอดขาย</th><th class="h-b">ห่างจากเป้าหมาย (บาท)</th><th class="noshot">หยุดขาย</th></tr>
-    ${X.rows.map(r=>{ const dd=parseYmd(r.d); const lab=`${pad2(dd.getDate())}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dd.getMonth()]}`;
+    ${X.rows.map(r=>{ const dd=parseYmd(r.d);
+      const rec=(getMonth(ymOf(r.d)).d[r.d])||{}; const src=rec._src||{};
+      const ED=(key,shown,cls='')=>{ const v=rec[key]; const typed=src[key]==='manual'||src[key]==='edit';
+        return `<td class="in ${cls} ${typed?'man':''}" title="${typed?'กรอกเอง':v!=null?'จากไฟล์':''}"><input data-ed="${r.d}|${key}" value="${v==null?'':+(+v).toFixed(2)}"><span class="cv">${shown}</span></td>`; }; const lab=`${pad2(dd.getDate())}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dd.getMonth()]}`;
       if(r.hol) return `<tr class="hol"><td>${lab}</td><td></td><td>${f0(r.tCum)}</td><td colspan="20"></td><td class="noshot"><input type="checkbox" data-hs="${r.d}" checked></td></tr>`;
-      return `<tr class="${r.d===X.upto?'today':''}"><td>${lab}</td><td>${r.oT??''}</td><td>${f0(r.tCum)}</td><td>${r.ord==null?'':fmt(r.ord,2).replace(/\.?0+$/,'')}</td><td>${f1(r.oCum)}</td><td>${f1(r.gap)}</td><td>${f1(r.need)}</td>
-      <td>${fk(r.kP)}</td><td>${fk(r.kC)}</td><td>${f0(r.kg)}</td><td class="c-g">${f0(r.kgCum)}</td><td>${fk(r.bP)}</td><td>${fk(r.bC)}</td><td>${f0(r.baht)}</td>
+      return `<tr class="${r.d===X.upto?'today':''}"><td>${lab}</td><td>${r.oT??''}</td><td>${f0(r.tCum)}</td>${(()=>{ const typed=rec.orderManual!=null; return `<td class="in ${typed?'man':''}" title="${typed?'กรอกเอง':'จากไฟล์สรุป'}"><input data-ed="${r.d}|orderManual" value="${typed?rec.orderManual:''}"><span class="cv">${r.ord==null?'':fmt(r.ord,2).replace(/\.?0+$/,'')}</span></td>`; })()}<td>${f1(r.oCum)}</td><td>${f1(r.gap)}</td><td>${f1(r.need)}</td>
+      ${ED('shipPrevKg',fk(r.kP))}${ED('shipCurKg',fk(r.kC))}<td>${f0(r.kg)}</td><td class="c-g">${f0(r.kgCum)}</td>${ED('salePrev',fk(r.bP))}${ED('saleCur',fk(r.bC))}<td>${f0(r.baht)}</td>
       <td class="c-p in ${r.typed?'man':''}" title="${r.typed?'กรอกเอง':r.manual?'นำเข้าจาก Excel':'คำนวณ'}">${r.past&&!r.hol?`<input data-cum="${r.d}" value="${r.manual?Math.round(M_cum(r.d)):''}" placeholder="${f0(r.bCum)}">`:''}<span class="cv">${f0(r.bCum)}</span></td>
-      <td class="c-lg">${f0(r.av)}</td><td>${f2(r.price)}</td><td>${f2(r.fc)}</td><td class="c-red">${f2(r.fcP)}</td><td>${f0(r.pv)}</td><td>${f0(r.p8)}</td><td class="c-g">${r.past||r.fc!=null?fmt(r.tgt,0)+' บาท':''}</td><td class="neg">${r.gapB==null?'':fmt(Math.abs(r.gapB),0)}</td>
+      <td class="c-lg">${f0(r.av)}</td><td>${f2(r.price)}</td><td>${f2(r.fc)}</td><td class="c-red">${f2(r.fcP)}</td>${ED('pendValNet',f0(r.pv))}${ED('pendVal8',f0(r.p8))}<td class="c-g">${r.past||r.fc!=null?fmt(r.tgt,0)+' บาท':''}</td><td class="neg">${r.gapB==null?'':fmt(Math.abs(r.gapB),0)}</td>
       <td class="noshot"><input type="checkbox" data-hs="${r.d}"></td></tr>`; }).join('')}
    </table></div></div>`;
   box.appendChild(card);
   $$('#salesBox input[data-hs]').forEach(c=>c.onchange=()=>{ const M=getMonth(ymOf(c.dataset.hs)); M.holSale=M.holSale||{}; M.holSale[c.dataset.hs]=c.checked; save(); renderSales(); });
+  $$('#salesBox input[data-ed]').forEach(i=>{ i.onchange=()=>{ const [d,k]=i.dataset.ed.split('|'); setVal(d,k,i.value); renderSales(); };
+    i.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); i.blur(); } }; });
   $$('#salesBox input[data-cum]').forEach(i=>{ i.onchange=()=>{ const d=i.dataset.cum; const M=getMonth(ymOf(d)); const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{}; const v=num(i.value);
       if(v==null){ delete cur.saleCumManual; delete cur._src.saleCumManual; } else { cur.saleCumManual=v; cur._src.saleCumManual='manual'; } save(); renderSales(); };
     i.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); i.blur(); } }; });
