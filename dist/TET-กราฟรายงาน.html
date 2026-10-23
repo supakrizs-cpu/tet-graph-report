@@ -523,7 +523,13 @@ async function analyzeFile(file){
   const wb=await readWorkbook(file); const name=file.name;
   // ก) ไฟล์สรุปปี (ชีต YYYY.MM)
   const yearSheets=wb.SheetNames.filter(n=>/^\d{4}\.\d{1,2}$/.test(n.trim()));
-  if(yearSheets.length) return parseYearBook(wb,yearSheets,name);
+  if(yearSheets.length){
+    const out=[parseYearBook(wb,yearSheets,name)];
+    for(const sn of wb.SheetNames){ if(yearSheets.includes(sn)) continue;
+      const rows=sheetRows(wb.Sheets[sn]);
+      if(rows.some(r=>r&&r.some(v=>norm(v)===norm('รวมยอดขาย')))){ const x=parseSalesBook(rows,name+' · ชีต '+sn,sn); if(Object.keys(x.months).length){ out.push(x); break; } } }
+    return out;
+  }
   // ข) ไฟล์เปิดบิลสั่งย้อม (สรุป)
   for(const sn of wb.SheetNames){
     const rows=sheetRows(wb.Sheets[sn]);
@@ -732,7 +738,7 @@ drop.addEventListener('drop',ev=>handleFiles([...ev.dataTransfer.files]));
 async function handleFiles(files){
   for(const f of files){
     if(f.name.startsWith('~$')) continue;
-    try{ pending.push(await analyzeFile(f)); }
+    try{ const r=await analyzeFile(f); (Array.isArray(r)?r:[r]).forEach(x=>pending.push(x)); }
     catch(e){ console.error(e); pending.push({kind:'skip',name:f.name,msg:'อ่านไฟล์ไม่ได้: '+e.message}); }
   }
   renderPreview();
@@ -1281,6 +1287,7 @@ function parseSalesBook(rows,name,sn){
 }
 function calcSales(ym, upto){
   const s=getSaleSet(ym); const M=getMonth(ym); const dates=monthDates(ym);
+  if(num(s.orderT)==null && M.t && num(M.t.order)!=null) s.orderT=M.t.order;   // เดือนเก่าที่ Excel ไม่มีเป้าออเดอร์ → ใช้เป้าออเดอร์ของกราฟเดือนนั้น (แก้ได้ในตั้งค่า)
   const C=calcMonth(ym,upto); const li=C.lastIdx<0?-1:C.lastIdx;
   const orderDay=d=>!isHoliday(d), saleDay=d=>!isSaleHoliday(d);
   const totalSale=dates.filter(saleDay).length, totalOrderDays=dates.filter(orderDay).length;
