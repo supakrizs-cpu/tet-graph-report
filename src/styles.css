@@ -145,7 +145,7 @@ table.sr tr.today td{font-weight:700}
 table.sr td.in{position:relative;min-width:110px}
 table.sr td.in input{position:absolute;inset:0;width:100%;border:0;background:transparent;text-align:right;padding:3px 6px;font:inherit;color:transparent}
 table.sr td.in input:focus{color:#000;background:#fff;outline:2px solid #2a78d6}
-table.sr td.in input:focus + .pv{visibility:hidden}
+table.sr td.in input:focus + .cv{visibility:hidden}
 table.sr td.man{background:#ffe08a!important}
 .noshot{background:#fff!important;border:0!important}
 

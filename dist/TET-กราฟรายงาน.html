@@ -151,7 +151,7 @@ table.sr tr.today td{font-weight:700}
 table.sr td.in{position:relative;min-width:110px}
 table.sr td.in input{position:absolute;inset:0;width:100%;border:0;background:transparent;text-align:right;padding:3px 6px;font:inherit;color:transparent}
 table.sr td.in input:focus{color:#000;background:#fff;outline:2px solid #2a78d6}
-table.sr td.in input:focus + .pv{visibility:hidden}
+table.sr td.in input:focus + .cv{visibility:hidden}
 table.sr td.man{background:#ffe08a!important}
 .noshot{background:#fff!important;border:0!important}
 
@@ -1302,7 +1302,7 @@ function calcSales(ym, upto){
     rows.push({d, oT, tCum, ord:past?ord:null, oCum:past&&orderDay(d)?oCum:null, gap:past&&orderDay(d)?tCum-oCum:null,
       need:past&&orderDay(d)&&remain?s.orderT+(tCum-oCum)/remain:null,
       kP:r.shipPrevKg??null, kC:r.shipCurKg??null, kg, kgCum:sd?kgCum:null, bP:r.salePrev??null, bC:r.saleCur??null, baht,
-      bCum:sd?bCum:null, manual:r.saleCumManual!=null, av, price:sd&&kgCum?bCum/kgCum:null, fc, fcP:fc!=null?fc+(r.pendValNet||0):null,
+      bCum:sd?bCum:null, manual:r.saleCumManual!=null, typed:!!(r._src&&r._src.saleCumManual==='manual'), av, price:sd&&kgCum?bCum/kgCum:null, fc, fcP:fc!=null?fc+(r.pendValNet||0):null,
       pv:r.pendValNet??null, p8:r.pendVal8??null, tgt:s.saleTarget, gapB:fc!=null?fc-s.saleTarget:null, hol:!saleDay(d), ohol:!orderDay(d), past});
   });
   const lastRow=[...rows].reverse().find(x=>x.bCum!=null)||{};
@@ -1332,7 +1332,7 @@ function renderSales(){
       if(r.hol) return `<tr class="hol"><td>${lab}</td><td></td><td>${f0(r.tCum)}</td><td colspan="20"></td><td class="noshot"><input type="checkbox" data-hs="${r.d}" checked></td></tr>`;
       return `<tr class="${r.d===X.upto?'today':''}"><td>${lab}</td><td>${r.oT??''}</td><td>${f0(r.tCum)}</td><td>${r.ord==null?'':fmt(r.ord,2).replace(/\.?0+$/,'')}</td><td>${f1(r.oCum)}</td><td>${f1(r.gap)}</td><td>${f1(r.need)}</td>
       <td>${fk(r.kP)}</td><td>${fk(r.kC)}</td><td>${f0(r.kg)}</td><td class="c-g">${f0(r.kgCum)}</td><td>${fk(r.bP)}</td><td>${fk(r.bC)}</td><td>${f0(r.baht)}</td>
-      <td class="c-p in ${r.manual?'man':''}">${r.past&&!r.hol?`<input data-cum="${r.d}" value="${r.manual?Math.round(M_cum(r.d)):''}" placeholder="${f0(r.bCum)}">`:''}<span class="pv">${f0(r.bCum)}</span></td>
+      <td class="c-p in ${r.typed?'man':''}" title="${r.typed?'กรอกเอง':r.manual?'นำเข้าจาก Excel':'คำนวณ'}">${r.past&&!r.hol?`<input data-cum="${r.d}" value="${r.manual?Math.round(M_cum(r.d)):''}" placeholder="${f0(r.bCum)}">`:''}<span class="cv">${f0(r.bCum)}</span></td>
       <td class="c-lg">${f0(r.av)}</td><td>${f2(r.price)}</td><td>${f2(r.fc)}</td><td class="c-red">${f2(r.fcP)}</td><td>${f0(r.pv)}</td><td>${f0(r.p8)}</td><td class="c-g">${r.past||r.fc!=null?fmt(r.tgt,0)+' บาท':''}</td><td class="neg">${r.gapB==null?'':fmt(Math.abs(r.gapB),0)}</td>
       <td class="noshot"><input type="checkbox" data-hs="${r.d}"></td></tr>`; }).join('')}
    </table></div></div>`;
