@@ -46,65 +46,132 @@ const TH_DOW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 const TH_MON = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 
 /* ---------------- 2. ที่เก็บข้อมูล ----------------
-   โหมดเครื่อง (file:// หรือ GitHub Pages): localStorage key 'tet-graph-report-v1'
-   โหมดออนไลน์ (https + supabase-config.js): Supabase ตาราง graph_report
-     1 แถว/เดือน key='m:YYYY-MM' + 1 แถว key='maps' · แคชในเครื่อง key '…-online-cache'
+   โหมดออนไลน์ (มี supabase-config — ทั้งหน้าเว็บและไฟล์ html ในเครื่อง file://):
+     Supabase ตาราง graph_report: 1 แถว/เดือน key='m:YYYY-MM' + 1 แถว key='maps'
+     แคชในเครื่อง '…-online-cache' (S ปัจจุบัน) + '…-online-base' (ข้อมูลเซิร์ฟเวอร์ครั้งล่าสุดที่ซิงก์)
+     ใช้งานออฟไลน์ได้: แก้แล้วเก็บในเครื่องก่อน ส่วนต่าง S กับ base = "รอส่ง" (อยู่รอดข้ามการปิดเปิด)
+     ซิงก์ = ดึงเซิร์ฟเวอร์ → รวมรายช่อง (ช่องที่เครื่องนี้แก้ทับของเซิร์ฟเวอร์ ช่องอื่นใช้ของเซิร์ฟเวอร์;
+     ชนช่องเดียวกัน = ใครแก้ทีหลังชนะ เทียบเวลาแก้ในเครื่องกับ updated_at ของแถว) → ส่งเฉพาะแถวที่เปลี่ยน
+   โหมดเครื่อง (ไม่มี config): localStorage key 'tet-graph-report-v1'
    ------------------------------------------------------------------------------- */
 const STORE_KEY = 'tet-graph-report-v1';
 const SB_CFG = window.SB_CONFIG || null;
-const IS_SB = location.protocol==='https:' && !!SB_CFG && !!window.supabase && !/ใส่-/.test((SB_CFG.url||'')+(SB_CFG.key||''));
+const SB_LIB = window.__mockSupabase || window.supabase;
+const IS_SB = !window.__localMode && !!SB_CFG && !!SB_LIB && !/ใส่-/.test((SB_CFG.url||'')+(SB_CFG.key||''));
 const SB_TABLE = (SB_CFG && SB_CFG.table) || 'graph_report';
 const LOCAL_KEY = IS_SB ? STORE_KEY+'-online-cache' : STORE_KEY;
+const BASE_KEY = STORE_KEY+'-online-base', META_KEY = STORE_KEY+'-online-meta';
 let SB=null, SB_USER='';
 const SYNC={state:IS_SB?'loading':'local', at:null, err:''};
+const lsGet=(k,d)=>{ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } };
+const lsSet=(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); return true; }catch(e){ return false; } };
 const Storage = {
-  load(){ try{ const s=localStorage.getItem(LOCAL_KEY); return s?JSON.parse(s):null; }catch(e){ return null; } },
+  load(){ return lsGet(LOCAL_KEY,null); },
   save(state){
-    let ok=true;
-    try{ localStorage.setItem(LOCAL_KEY, JSON.stringify(state)); }catch(e){ ok=false; if(!IS_SB) toast('บันทึกในเบราว์เซอร์ไม่ได้ — กด "บันทึกไฟล์สำรอง (JSON)" ในหน้าตั้งค่า'); }
-    if(IS_SB && SB_USER) Cloud.queue();
+    const ok=lsSet(LOCAL_KEY,state);
+    if(!ok && !IS_SB) toast('บันทึกในเบราว์เซอร์ไม่ได้ — กด "บันทึกไฟล์สำรอง (JSON)" ในหน้าตั้งค่า');
+    if(IS_SB){ Cloud.meta.editAt=Date.now(); lsSet(META_KEY,Cloud.meta); Cloud.queue(); }
     return ok;
   },
 };
+/* แปลง object เป็น {path: ค่า JSON} เพื่อเทียบ/รวมรายช่อง */
+const PSEP='\u0001';
+function flat(o,pre,out){ out=out||{}; pre=pre||'';
+  if(o&&typeof o==='object'&&!Array.isArray(o)){ const ks=Object.keys(o); if(!ks.length&&pre) out[pre]='{}'; ks.forEach(k=>flat(o[k],pre?pre+PSEP+k:k,out)); }
+  else if(o!==undefined) out[pre]=JSON.stringify(o);
+  return out; }
+function unflat(m){ const r={}; Object.keys(m).sort().forEach(p=>{ const ks=p.split(PSEP); let o=r;
+  for(let i=0;i<ks.length-1;i++){ if(!o[ks[i]]||typeof o[ks[i]]!=='object'||Array.isArray(o[ks[i]])) o[ks[i]]={}; o=o[ks[i]]; }
+  const v=JSON.parse(m[p]); const last=ks[ks.length-1]; if(!(m[p]==='{}'&&o[last]&&typeof o[last]==='object')) o[last]=v; }); return r; }
+/* รวม 3 ทาง: base=ต้นทาง, mine=ของเครื่องนี้, theirs=ของเซิร์ฟเวอร์ → ช่องที่เครื่องนี้แก้ใช้ของเครื่องนี้ (ชนกัน: mineWins ตัดสิน) */
+function merge3(base,mine,theirs,mineWins){ const B=flat(base),M=flat(mine),T=flat(theirs),R=Object.assign({},T);
+  new Set([...Object.keys(B),...Object.keys(M)]).forEach(p=>{ if(M[p]===B[p]) return;
+    if(T[p]!==B[p] && T[p]!==M[p] && !mineWins) return;
+    if(M[p]===undefined) delete R[p]; else R[p]=M[p]; });
+  /* ลบ path ที่เป็นพ่อ/ลูกชนกัน (เช่น {} กับค่าข้างใน) */
+  return unflat(R); }
+const isUserKey=p=>!p.split(PSEP).includes('_src');
+function countDiff(a,b){ const A=flat(a),B=flat(b); let n=0; new Set([...Object.keys(A),...Object.keys(B)]).forEach(p=>{ if(A[p]!==B[p]&&isUserKey(p)) n++; }); return n; }
 const Cloud = {
-  synced:{}, timer:null, busy:false,
-  rowsOf(st){ const r={maps:st.maps}; Object.entries(st.months).forEach(([ym,m])=>r['m:'+ym]=m); return r; },
-  async pull(){
-    const {data,error}=await SB.from(SB_TABLE).select('key,data');
-    if(error) throw new Error(error.message);
-    this.synced={}; if(!data||!data.length) return null;
-    const st=freshState();
-    data.forEach(row=>{ this.synced[row.key]=JSON.stringify(row.data);
-      if(row.key==='maps') st.maps=row.data; else if(row.key.startsWith('m:')) st.months[row.key.slice(2)]=row.data; });
-    return st;
+  base:lsGet(BASE_KEY,null),            // {rowKey: data} ข้อมูลเซิร์ฟเวอร์ครั้งล่าสุดที่ซิงก์ (null = ยังไม่เคยซิงก์ในเครื่องนี้)
+  meta:lsGet(META_KEY,{}),              // {editAt: เวลาแก้ล่าสุดในเครื่อง, user}
+  timer:null, busy:false, again:false, retry:null,
+  rowsOf(st){ const r={maps:st.maps}; Object.entries(st.months||{}).forEach(([ym,m])=>r['m:'+ym]=m); return r; },
+  stateOf(rows,ui){ const st=freshState(); st.ui=ui||{}; if(rows.maps) st.maps=rows.maps;
+    Object.entries(rows).forEach(([k,v])=>{ if(k.startsWith('m:')) st.months[k.slice(2)]=v; }); return st; },
+  pendingCount(){ if(!this.base) return 0; return countDiff(this.base,this.rowsOf(S)); },
+  queue(){ clearTimeout(this.timer); this.timer=setTimeout(()=>{this.timer=null;this.sync();},700); setSync(); },
+  async sync(opts){
+    opts=opts||{};
+    if(!SB) return;
+    if(this.busy){ this.again=true; return; }
+    if(!SB_USER){ setSync('login'); return; }
+    if(navigator.onLine===false){ setSync('offline'); return; }
+    this.busy=true; this.again=false; setSync('saving');
+    try{
+      const ses=await getSes(); if(!ses){ if(navigator.onLine===false) throw new Error('offline'); throw new Error('auth: no session'); }
+      const {data,error}=await SB.from(SB_TABLE).select('key,data,updated_at'); if(error) throw error;
+      const theirs={}, tAt={}; (data||[]).forEach(r=>{ theirs[r.key]=r.data; tAt[r.key]=Date.parse(r.updated_at)||0; });
+      if(this.base && Object.keys(this.base).length && !Object.keys(theirs).length) throw new Error('เซิร์ฟเวอร์ไม่ส่งข้อมูลกลับมา (ไม่มีสิทธิ์อ่าน?) — ยังไม่ส่งข้อมูล');
+      const mine=this.rowsOf(S), snap=JSON.parse(JSON.stringify(mine));
+      let merged;
+      if(!this.base){
+        /* เครื่องนี้ยังไม่เคยซิงก์: มีข้อมูลบนเซิร์ฟเวอร์ = ใช้ของเซิร์ฟเวอร์ (ไม่เอาข้อมูลเก่าในเครื่อง) / เซิร์ฟเวอร์ว่าง = ส่งของเครื่องนี้ขึ้น */
+        merged = Object.keys(theirs).length ? JSON.parse(JSON.stringify(theirs)) : snap;
+      } else {
+        merged={}; const editAt=this.meta.editAt||0;
+        new Set([...Object.keys(theirs),...Object.keys(mine)]).forEach(k=>{
+          if(!(k in mine)){ merged[k]=theirs[k]; return; }
+          merged[k]=merge3(this.base[k]||{}, mine[k], theirs[k]||{}, editAt>(tAt[k]||0));
+        });
+      }
+      const up=Object.keys(merged).filter(k=>JSON.stringify(merged[k])!==JSON.stringify(theirs[k]))
+        .map(k=>({key:k,data:merged[k],updated_at:new Date().toISOString(),updated_by:SB_USER}));
+      if(up.length){ const {error:e2}=await SB.from(SB_TABLE).upsert(up); if(e2) throw e2; }
+      /* ระหว่างรอเน็ต ผู้ใช้อาจแก้เพิ่ม → เอาส่วนที่แก้หลัง snap ทับลงไป (รอบหน้าจะส่ง) */
+      const now=this.rowsOf(S), final={};
+      Object.keys(Object.assign({},merged,now)).forEach(k=>{ final[k]= (k in now) ? merge3(snap[k]||{}, now[k], merged[k]||{}, true) : merged[k]; });
+      this.base=merged; lsSet(BASE_KEY,merged);
+      const changedView = JSON.stringify(final)!==JSON.stringify(now);
+      S=this.stateOf(final,S.ui); lsSet(LOCAL_KEY,S);
+      this.meta.user=SB_USER; lsSet(META_KEY,this.meta);
+      SYNC.at=new Date(); setSync('ok');
+      if(changedView && !typing()){ fillMonthSel(); refresh(); }
+      else if(changedView) this.again=true;
+    }catch(e){
+      const msg=String((e&&e.message)||e);
+      if(/jwt|token|auth|401|403|row-level/i.test(msg) && navigator.onLine!==false) setSync('login',msg);
+      else if(navigator.onLine===false || /offline|fetch|network|timeout|load failed/i.test(msg)) setSync('offline',msg);
+      else setSync('err',msg);
+      clearTimeout(this.retry); this.retry=setTimeout(()=>{ if(this.pendingCount()) this.sync(); },60000);
+    }finally{
+      this.busy=false;
+      if(this.again && SYNC.state==='ok'){ this.again=false; this.queue(); }
+    }
   },
-  queue(){ clearTimeout(this.timer); setSync('saving'); this.timer=setTimeout(()=>{this.timer=null;this.push();},700); },
-  async push(){
-    if(this.busy){ this.queue(); return; }
-    const ch=Object.entries(this.rowsOf(S)).filter(([k,v])=>JSON.stringify(v)!==this.synced[k])
-      .map(([k,v])=>({key:k,data:v,updated_at:new Date().toISOString(),updated_by:SB_USER}));
-    if(!ch.length){ setSync('ok'); return; }
-    this.busy=true;
-    try{ const {error}=await SB.from(SB_TABLE).upsert(ch); if(error) throw new Error(error.message);
-      ch.forEach(r=>this.synced[r.key]=JSON.stringify(r.data)); setSync('ok'); }
-    catch(e){ setSync('err',e.message); }
-    finally{ this.busy=false; }
-  },
-  pending(){ return !!this.timer || this.busy || SYNC.state==='err'; },
+  pending(){ return !!this.timer || this.busy || this.pendingCount()>0; },
 };
 function setSync(state,err){
-  SYNC.state=state; if(state==='ok') SYNC.at=new Date(); SYNC.err=err||'';
+  if(state){ SYNC.state=state; SYNC.err=err||''; }
   const el=document.getElementById('sync'); if(!el) return;
   const t=SYNC.at?`${pad2(SYNC.at.getHours())}:${pad2(SYNC.at.getMinutes())}`:'';
+  const n=IS_SB?Cloud.pendingCount():0;
+  const wait=n?` · <b class="pend">รอส่ง ${n} ช่อง</b> <button class="btn sm pri" data-sync="now">ส่งตอนนี้</button>`:'';
   el.innerHTML={
     local:'<span title="ข้อมูลเก็บในเบราว์เซอร์ของเครื่องนี้">💾 เก็บในเครื่องนี้</span>',
     loading:'⏳ กำลังโหลด…',
-    saving:`⏳ กำลังบันทึก… <span class="hint">👤 ${esc(SB_USER)}</span>`,
-    ok:`✅ ออนไลน์ · 👤 ${esc(SB_USER)} · ${t} <button class="btn sm" data-sync="reload" title="โหลดข้อมูลล่าสุดจากเซิร์ฟเวอร์">🔄</button> <button class="btn sm" data-sync="out">ออกจากระบบ</button>`,
-    err:`<span style="color:var(--bad)">⚠ บันทึกขึ้นเซิร์ฟเวอร์ไม่สำเร็จ: ${esc(SYNC.err)}</span> <button class="btn sm" data-sync="retry">ลองใหม่</button>`,
-  }[state]||'';
-  el.querySelectorAll('[data-sync]').forEach(b=>b.onclick=()=>{
-    const a=b.dataset.sync; if(a==='reload') reloadCloud(); if(a==='retry') Cloud.push(); if(a==='out') sbLogout();
+    saving:`⏳ กำลังซิงก์… <span class="hint">👤 ${esc(SB_USER)}</span>`,
+    ok: n ? `🟡 ออนไลน์ · 👤 ${esc(SB_USER)}${wait}`
+          : `✅ ออนไลน์ · 👤 ${esc(SB_USER)} · ${t} <button class="btn sm" data-sync="now" title="โหลดข้อมูลล่าสุดจากเซิร์ฟเวอร์">🔄</button> <button class="btn sm" data-sync="out">ออกจากระบบ</button>`,
+    offline:`<span class="off" title="${esc(SYNC.err)}">🟠 ออฟไลน์ · 👤 ${esc(SB_USER)}</span>${n?wait:' · ข้อมูลล่าสุด '+(t||'ที่เก็บในเครื่อง')}`,
+    login:`<span style="color:var(--bad)">🔑 ต้องล็อกอินใหม่</span>${n?` · <b class="pend">รอส่ง ${n} ช่อง</b>`:''} <button class="btn sm pri" data-sync="login">ล็อกอิน</button>`,
+    err:`<span style="color:var(--bad)">⚠ ซิงก์ไม่สำเร็จ: ${esc(SYNC.err)}</span>${n?` · <b class="pend">รอส่ง ${n} ช่อง</b>`:''} <button class="btn sm" data-sync="now">ลองใหม่</button>`,
+  }[SYNC.state]||'';
+  el.querySelectorAll('[data-sync]').forEach(b=>b.onclick=async()=>{
+    const a=b.dataset.sync;
+    if(a==='now'){ flushDraft(); Cloud.sync(); }
+    if(a==='out') sbLogout();
+    if(a==='login'){ await sbLogin(true); Cloud.sync(); }
   });
 }
 function freshState(){ return {v:1, maps:JSON.parse(JSON.stringify(DEFAULT_MAPS)), months:{}, ui:{}}; }
@@ -1095,38 +1162,54 @@ function exportYear(y){
 }
 
 /* ---------------- 15. เริ่ม + ออนไลน์ ---------------- */
-function sbLogin(){
+/* อ่าน session ที่จำไว้ (ไม่ค้างถ้าไม่มีเน็ตแล้ว token หมดอายุ) */
+async function getSes(){ try{ const r=await Promise.race([SB.auth.getSession(), new Promise(r=>setTimeout(()=>r({}),5000))]); return (r&&r.data&&r.data.session)||null; }catch(e){ return null; } }
+function sbLogin(force){
   return new Promise(async res=>{
-    try{ const {data}=await SB.auth.getSession(); if(data&&data.session){ SB_USER=(data.session.user.email||'').split('@')[0]; return res(); } }catch(e){}
+    if(!force){ const ses=await getSes(); if(ses){ SB_USER=(ses.user.email||'').split('@')[0]; return res(true); } }
     const box=$('#login'); box.hidden=false; setTimeout(()=>$('#lgU').focus(),50);
+    if(SB_USER) $('#lgU').value=SB_USER;
     const go=async()=>{
       const u=$('#lgU').value.trim().toLowerCase(), p=$('#lgP').value; if(!u||!p) return;
       const email=u.includes('@')?u:`${u}@${SB_CFG.domain||'tet.local'}`;
       $('#lgMsg').textContent='กำลังเข้าสู่ระบบ…';
       try{ const {data,error}=await SB.auth.signInWithPassword({email,password:p});
-        if(error) throw error; SB_USER=(data.user.email||'').split('@')[0]; box.hidden=true; res(); }
-      catch(e){ $('#lgMsg').textContent='เข้าสู่ระบบไม่ได้: ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'; }
+        if(error) throw error; SB_USER=(data.user.email||'').split('@')[0]; $('#lgP').value=''; $('#lgMsg').textContent=''; box.hidden=true; res(true); }
+      catch(e){ $('#lgMsg').textContent = navigator.onLine===false||/fetch|network/i.test(String(e&&e.message))
+        ? 'ไม่มีอินเทอร์เน็ต — ล็อกอินครั้งแรกต้องต่อเน็ต' : 'เข้าสู่ระบบไม่ได้: ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'; }
     };
     $('#lgBtn').onclick=go; $('#lgP').onkeydown=e=>{ if(e.key==='Enter') go(); };
   });
 }
-async function sbLogout(){ try{ localStorage.removeItem(LOCAL_KEY); await SB.auth.signOut(); }catch(e){} location.reload(); }
-async function reloadCloud(){
-  if(Cloud.pending()){ toast('รอบันทึกให้เสร็จก่อน แล้วค่อยโหลดใหม่'); return; }
-  setSync('loading');
-  try{
-    const st=await Cloud.pull();
-    if(st){ st.ui=S.ui||{}; S=st; try{ localStorage.setItem(LOCAL_KEY, JSON.stringify(S)); }catch(e){} }
-    else if(Object.keys(S.months).length){ Cloud.queue(); }
-    setSync('ok'); fillMonthSel(); refresh();
-  }catch(e){ setSync('err', e.message); }
+async function sbLogout(){
+  flushDraft(); const n=Cloud.pendingCount();
+  if(n){ toast(`ยังมีข้อมูลรอส่ง ${n} ช่อง — กด "ส่งตอนนี้" ให้เสร็จก่อนออกจากระบบ`); return; }
+  try{ [LOCAL_KEY,BASE_KEY,META_KEY].forEach(k=>localStorage.removeItem(k)); await SB.auth.signOut(); }catch(e){} location.reload(); }
+async function reloadCloud(){ return Cloud.sync(); }
+/* ไฟล์ในเครื่อง (file://): ตรวจว่ามีเวอร์ชันใหม่บนเว็บไหม */
+async function checkVersion(){
+  if(location.protocol!=='file:' || !window.APP_SITE) return;
+  try{ const r=await fetch(APP_SITE+'version.json?t='+Date.now(),{cache:'no-store'}); const j=await r.json();
+    if(j && j.v && j.v!==APP_VER){ const el=$('#newver'); el.innerHTML=`มีเวอร์ชันใหม่ (${esc(j.v)}) <a class="btn sm pri" href="${APP_SITE}tet-graph-report.html" download>ดาวน์โหลด</a> แล้ววางทับไฟล์นี้`; el.hidden=false; } }catch(e){}
 }
 async function boot(){
   fillMonthSel(); renderQuick(); setSync(SYNC.state);
+  if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost') && IS_SB && !window.__mockSupabase){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+  checkVersion();
   if(!IS_SB) return;
-  SB=window.supabase.createClient(SB_CFG.url, SB_CFG.key);
-  await sbLogin(); await reloadCloud();
-  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && SYNC.state==='ok' && !Cloud.pending() && !typing()) reloadCloud(); });
+  SB=SB_LIB.createClient(SB_CFG.url, SB_CFG.key);
+  window.addEventListener('online',()=>Cloud.sync());
+  window.addEventListener('offline',()=>setSync('offline'));
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && !Cloud.busy && !typing()) Cloud.sync(); });
   window.addEventListener('beforeunload',e=>{ if(Cloud.timer||Cloud.busy){ e.preventDefault(); e.returnValue=''; } });
+  /* มีแคช + เคยล็อกอิน → แสดงข้อมูลในเครื่องทันที (ใช้ได้ตอนไม่มีเน็ต) แล้วค่อยตรวจล็อกอิน/ซิงก์เบื้องหลัง */
+  if(Cloud.base && Cloud.meta.user){
+    SB_USER=Cloud.meta.user; setSync(navigator.onLine===false?'offline':'loading');
+    const ses=await getSes();
+    if(ses){ SB_USER=(ses.user.email||'').split('@')[0]; return Cloud.sync(); }
+    if(navigator.onLine===false){ setSync('offline'); return; }
+    setSync('login'); return;
+  }
+  await sbLogin(); await Cloud.sync();
 }
 boot();

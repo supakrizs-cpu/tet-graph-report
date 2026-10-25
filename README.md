@@ -3,7 +3,7 @@
 HTML ไฟล์เดียว: อัปโหลด Excel → ตาราง + กราฟรายวัน/สรุปปี → คัดลอกรูปวางใน LINE
 
 - **ใช้งานจริง (หลัก):** https://tet-graph-report.supakrizs.workers.dev — ล็อกอินบัญชีเดียวกับ Sale Order Tracker · ข้อมูลบน Supabase (Cloudflare deploy `public/`)
-- สำรอง: GitHub Pages `index.html` / ไฟล์ `dist/TET-กราฟรายงาน.html` — โหมดเครื่อง ข้อมูลแยกในเบราว์เซอร์ (ไม่ซิงก์กับออนไลน์)
+- ไฟล์ `dist/TET-กราฟรายงาน.html` ใช้ในเครื่องได้ — ซิงก์ Supabase ชุดเดียวกัน และใช้ตอนไม่มีเน็ตได้ (ส่งขึ้นเองเมื่อเน็ตกลับมา)
 - **จะแก้ต่อ อ่าน `HANDOFF.md` ก่อน** (กฎสั้นสำหรับ AI อยู่ใน `AGENTS.md`)
 - **repo นี้ไม่มีข้อมูลจริง ห้าม commit ไฟล์ Excel/JSON ข้อมูล**
 
