@@ -1,6 +1,6 @@
 // Service worker: ให้หน้าเว็บเปิดได้ตอนไม่มีเน็ต (ข้อมูลอยู่ในแคช localStorage ของแอป)
-// รุ่น: 2026-10-23 21:48 (build.py ใส่ให้ — เปลี่ยนทุก build เพื่อให้เบราว์เซอร์อัปเดต)
-const CACHE='tet-graph-2026-10-23 21:48';
+// รุ่น: 2026-10-25 09:24 (build.py ใส่ให้ — เปลี่ยนทุก build เพื่อให้เบราว์เซอร์อัปเดต)
+const CACHE='tet-graph-2026-10-25 09:24';
 const FILES=['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png'];
 self.addEventListener('install',e=>{ e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting())); });
 self.addEventListener('activate',e=>{ e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())); });
