@@ -1061,7 +1061,7 @@ function renderSales(){
   const f0=v=>v==null?'':fmt(v,0), f1=v=>v==null?'':fmt(v,1), f2=v=>v==null?'':fmt(v,2), fk=v=>v==null||v===0?'':fmt(v,0);
   const prevM=m===1?12:m-1;
   const card=document.createElement('div'); card.className='card';
-  card.innerHTML=`<div class="cardbar"><span class="hint" style="margin-right:auto;align-self:center">ช่อง ออเดอร์จริง / ส่งผ้าได้ / ยอดขาย / ยอดขายสะสม / มูลค่าค้างส่ง <b>คลิกแก้ได้</b> (สีเหลือง = แก้เอง) · ติ๊ก "หยุดขาย" เพื่อตั้งวันหยุดขาย · วันหยุดออเดอร์ตั้งที่แท็บตารางเดือน</span>
+  card.innerHTML=`<div class="cardbar"><span class="hint" style="margin-right:auto;align-self:center">ช่อง ออเดอร์จริง / ส่งผ้าได้ / ยอดขาย / ยอดขายสะสม / มูลค่าค้างส่ง <b>คลิกแก้ได้</b> · ติ๊ก "หยุดขาย" เพื่อตั้งวันหยุดขาย · วันหยุดออเดอร์ตั้งที่แท็บตารางเดือน</span>
      <button class="btn sm" data-copy>คัดลอกรูป</button><button class="btn sm" data-dl>ดาวน์โหลด PNG</button></div>
    <div class="shot"><div class="sr-scroll"><table class="sr">
     <tr class="t1"><td colspan="7" class="h-or">เป้าและออเดอร์เดือน ${m}/${be}  ${f0(s.orderT)}ตัน/วัน  ${fmt(X.sum.tMonth,0)}ตัน/เดือน</td>
