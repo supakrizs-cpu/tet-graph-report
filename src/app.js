@@ -475,8 +475,8 @@ drop.addEventListener('drop',ev=>handleFiles([...ev.dataTransfer.files]));
 async function handleFiles(files){
   for(const f of files){
     if(f.name.startsWith('~$')) continue;
-    try{ const r=await analyzeFile(f); (Array.isArray(r)?r:[r]).forEach(x=>pending.push(x)); }
-    catch(e){ console.error(e); pending.push({kind:'skip',name:f.name,msg:'อ่านไฟล์ไม่ได้: '+e.message}); }
+    try{ const r=await analyzeFile(f); (Array.isArray(r)?r:[r]).forEach(x=>{ if(f._watch) x._watch=f._watch; pending.push(x); }); }
+    catch(e){ console.error(e); pending.push({kind:'skip',name:f.name,msg:'อ่านไฟล์ไม่ได้: '+e.message,_watch:f._watch}); }
   }
   renderPreview();
 }
@@ -519,7 +519,7 @@ function renderPreview(){
   $$('[data-rd]').forEach(i=>i.onchange=()=>{const p=pending[+i.dataset.rd]; p.reportDate=i.value; calcPending(p); renderPreview();});
   $('#pvActions').style.display=pending.some(p=>p.kind!=='skip')?'flex':'none';
 }
-$('#btnClearPv').onclick=()=>{pending=[];renderPreview();};
+$('#btnClearPv').onclick=()=>{Watch.markSeen(pending);pending=[];renderPreview();};
 $('#btnSaveAll').onclick=()=>{
   let lastDate=null, n=0;
   pending.forEach(p=>{
@@ -554,7 +554,7 @@ $('#btnSaveAll').onclick=()=>{
       });
     }
   });
-  save(); pending=[]; renderPreview();
+  save(); Watch.markSeen(pending); pending=[]; renderPreview();
   if(lastDate){ fillMonthSel(ymOf(lastDate)); fillDaySel(lastDate); }
   renderQuick();
   toast(`บันทึกแล้ว ${n} รายการ`);
@@ -580,6 +580,57 @@ function renderQuick(){
     fillMonthSel(ymOf(dd)); fillDaySel(dd); toast('บันทึกแล้ว');
   };
 }
+
+/* ---------------- 9b. โฟลเดอร์เฝ้าดู — นำเข้าอัตโนมัติ (File System Access API: Chrome/Edge) ----------------
+   ผู้ใช้เลือกโฟลเดอร์ครั้งเดียว (handle เก็บใน IndexedDB ของเครื่องนั้น) → ทุกครั้งที่เปิดโปรแกรมสแกนหาไฟล์ใหม่
+   ที่ชื่อตรงแบบ ค้างส่ง dd.mm.yyyy_ตามรูป / เปิดบิลขาย dd.mm.yyyy_pivot_summary / dd.mm.yyyy สรุป
+   → ขึ้นการ์ดตัวอย่างเหมือนลากไฟล์ ผู้ใช้กด "บันทึกทั้งหมด" เอง (ผู้ใช้เลือก 30 ต.ค.)
+   ไฟล์ที่มีอยู่ตอนตั้งค่าถือว่าเห็นแล้ว (ไม่นำเข้าย้อนหลัง) · เห็นแล้ว = name|lastModified|size ใน localStorage '…-watch'
+   ------------------------------------------------------------------------------------------------- */
+const WATCH_KEY=STORE_KEY+'-watch';
+const WATCH_RE=[/^ค้างส่ง \d\d\.\d\d\.\d{4}_ตามรูป\.xlsx$/, /^เปิดบิลขาย \d\d\.\d\d\.\d{4}_pivot_summary\.xlsx$/, /^\d\d\.\d\d\.\d{4} สรุป\.xlsx$/];
+const Watch={
+  dir:null, meta:lsGet(WATCH_KEY,{seen:{},at:null,name:''}), busy:false,
+  ok(){ return !!window.showDirectoryPicker && !!window.indexedDB; },
+  idb(){ return new Promise((res,rej)=>{ const r=indexedDB.open('tet-graph-report',1); r.onupgradeneeded=()=>r.result.createObjectStore('kv'); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); },
+  async loadDir(){ try{ const db=await this.idb(); return await new Promise((res,rej)=>{ const t=db.transaction('kv').objectStore('kv').get('dir'); t.onsuccess=()=>res(t.result||null); t.onerror=()=>rej(t.error); }); }catch(e){ return null; } },
+  async saveDir(h){ try{ const db=await this.idb(); await new Promise((res,rej)=>{ const t=db.transaction('kv','readwrite'); (h?t.objectStore('kv').put(h,'dir'):t.objectStore('kv').delete('dir')); t.oncomplete=res; t.onerror=()=>rej(t.error); }); }catch(e){} },
+  async files(){ const out=[]; for await (const [name,h] of this.dir.entries()){ if(h.kind!=='file'||name.startsWith('~$')||!WATCH_RE.some(r=>r.test(name))) continue; const f=await h.getFile(); out.push(f); } return out; },
+  key(f){ return `${f.name}|${f.lastModified}|${f.size}`; },
+  async pick(){
+    try{ const h=await window.showDirectoryPicker({id:'tet-report',mode:'read'}); this.dir=h; await this.saveDir(h);
+      const fs=await this.files(); this.meta={seen:Object.fromEntries(fs.map(f=>[this.key(f),1])),at:Date.now(),name:h.name}; this.save();
+      toast(`เฝ้าดูโฟลเดอร์ "${h.name}" แล้ว — ไฟล์ใหม่ที่มาหลังจากนี้จะขึ้นให้ตรวจเอง (${fs.length} ไฟล์เดิมไม่นำเข้า)`); this.render('granted'); }
+    catch(e){ if(e&&e.name!=='AbortError') toast('เลือกโฟลเดอร์ไม่ได้: '+e.message); }
+  },
+  save(){ lsSet(WATCH_KEY,this.meta); },
+  async forget(){ this.dir=null; await this.saveDir(null); this.meta={seen:{},at:null,name:''}; this.save(); this.render(); toast('ยกเลิกเฝ้าดูโฟลเดอร์แล้ว'); },
+  async perm(ask){ if(!this.dir) return 'none'; try{ let p=await this.dir.queryPermission({mode:'read'}); if(p!=='granted'&&ask) p=await this.dir.requestPermission({mode:'read'}); return p; }catch(e){ return 'denied'; } },
+  async scan(ask){
+    if(!this.dir||this.busy) return; this.busy=true;
+    try{
+      const p=await this.perm(ask); if(p!=='granted'){ this.render(p); return; }
+      const fs=(await this.files()).filter(f=>!this.meta.seen[this.key(f)]).sort((a,b)=>a.name.localeCompare(b.name,'th'));
+      this.meta.last=Date.now(); this.save();
+      if(fs.length){ fs.forEach(f=>{ f._watch=this.key(f); }); await handleFiles(fs); toast(`พบไฟล์ใหม่ในโฟลเดอร์ ${fs.length} ไฟล์ — ตรวจแล้วกด "บันทึกทั้งหมด"`); }
+      this.render('granted', fs.length);
+    }catch(e){ console.error(e); toast('สแกนโฟลเดอร์ไม่ได้: '+e.message); this.render('granted'); }
+    finally{ this.busy=false; }
+  },
+  markSeen(ps){ let ch=false; ps.forEach(p=>{ if(p._watch){ this.meta.seen[p._watch]=1; ch=true; } }); if(ch) this.save(); },
+  render(perm,found){
+    const el=$('#watchBar'); if(!el) return;
+    if(!this.ok()){ el.hidden=true; return; }
+    el.hidden=false;
+    if(!this.dir){ el.innerHTML=`<span class="hint">นำเข้าอัตโนมัติ: ให้โปรแกรมสแกนโฟลเดอร์รายงานทุกครั้งที่เปิด (Chrome/Edge)</span><button class="btn sm pri" data-w="pick">📂 เลือกโฟลเดอร์รายงาน</button>`; }
+    else if(perm&&perm!=='granted'){ el.innerHTML=`<span class="hint">📂 โฟลเดอร์ <b>${esc(this.meta.name)}</b> — Chrome ขอให้ยืนยันสิทธิ์อ่านอีกครั้ง</span><button class="btn sm pri" data-w="scan">กดเพื่อสแกนไฟล์ใหม่</button><button class="btn sm" data-w="forget">ยกเลิก</button>`; }
+    else { const t=this.meta.last?new Date(this.meta.last):null;
+      el.innerHTML=`<span class="hint">📂 เฝ้าดู <b>${esc(this.meta.name)}</b>${t?` · สแกนล่าสุด ${pad2(t.getHours())}:${pad2(t.getMinutes())}`:''}${found!=null?` · ${found?`พบไฟล์ใหม่ ${found} ไฟล์`:'ไม่มีไฟล์ใหม่'}`:''}</span><button class="btn sm" data-w="scan">🔄 สแกนใหม่</button><button class="btn sm" data-w="pick" title="เปลี่ยนโฟลเดอร์">เปลี่ยน</button><button class="btn sm" data-w="forget">ยกเลิก</button>`; }
+    el.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ const a=b.dataset.w; if(a==='pick') this.pick(); if(a==='scan') this.scan(true); if(a==='forget') this.forget(); });
+  },
+  async boot(){ if(!this.ok()) return; this.dir=await this.loadDir(); if(this.dir&&!this.meta.name) this.meta.name=this.dir.name; this.render(); if(this.dir) this.scan(false);
+    document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&this.dir&&!pending.length) this.scan(false); }); },
+};
 
 /* ---------------- 10. ตารางเดือน ---------------- */
 const getCap = ()=>({...DEFAULT_CAP, ...((S.maps&&S.maps.cap)||{})});
@@ -1193,7 +1244,7 @@ async function checkVersion(){
     if(j && j.v && j.v!==APP_VER){ const el=$('#newver'); el.innerHTML=`มีเวอร์ชันใหม่ (${esc(j.v)}) <a class="btn sm pri" href="${APP_SITE}tet-graph-report.html" download>ดาวน์โหลด</a> แล้ววางทับไฟล์นี้`; el.hidden=false; } }catch(e){}
 }
 async function boot(){
-  fillMonthSel(); renderQuick(); setSync(SYNC.state);
+  fillMonthSel(); renderQuick(); setSync(SYNC.state); Watch.boot();
   if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost') && IS_SB && !window.__mockSupabase){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
   checkVersion();
   if(!IS_SB) return;
