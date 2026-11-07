@@ -516,6 +516,8 @@ function renderPreview(){
     p.warns.forEach(w=>html+=`<div class="warn">⚠ ${esc(w)}</div>`);
     el.innerHTML=html; box.appendChild(el);
   });
+  [...box.children].forEach((el,i)=>el.insertAdjacentHTML('afterbegin',`<button class="pvx" data-pvx="${i}" title="เอาไฟล์นี้ออกจากรายการ (จะไม่ขึ้นอีกตอนสแกนครั้งหน้า)">✕</button>`));
+  $$('[data-pvx]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.pvx, p=pending[i]; if(!p) return; Watch.markSeen([p]); pending.splice(i,1); renderPreview(); toast(`เอา "${p.name}" ออกจากรายการแล้ว`); });
   $$('[data-rd]').forEach(i=>i.onchange=()=>{const p=pending[+i.dataset.rd]; p.reportDate=i.value; calcPending(p); renderPreview();});
   $('#pvActions').style.display=pending.some(p=>p.kind!=='skip')?'flex':'none';
 }
@@ -610,7 +612,8 @@ const Watch={
     if(!this.dir||this.busy) return; this.busy=true;
     try{
       const p=await this.perm(ask); if(p!=='granted'){ this.render(p); return; }
-      const fs=(await this.files()).filter(f=>!this.meta.seen[this.key(f)]).sort((a,b)=>a.name.localeCompare(b.name,'th'));
+      const inPv=new Set(pending.map(x=>x._watch).filter(Boolean)); // ไฟล์ที่รออยู่ในรายการแล้ว — ไม่เพิ่มซ้ำ
+      const fs=(await this.files()).filter(f=>{const k=this.key(f);return !this.meta.seen[k]&&!inPv.has(k);}).sort((a,b)=>a.name.localeCompare(b.name,'th'));
       this.meta.last=Date.now(); this.save();
       if(fs.length){ fs.forEach(f=>{ f._watch=this.key(f); }); await handleFiles(fs); toast(`พบไฟล์ใหม่ในโฟลเดอร์ ${fs.length} ไฟล์ — ตรวจแล้วกด "บันทึกทั้งหมด"`); }
       this.render('granted', fs.length);

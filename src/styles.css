@@ -46,8 +46,10 @@ h2.sec{font-size:16px;margin:0 0 10px}
 .drop{border:2px dashed #c9c8c2;border-radius:12px;background:#fff;padding:34px;text-align:center;cursor:pointer}
 .drop.over{border-color:var(--accent);background:#f2f7fd}
 .drop b{font-size:16px}
-.pv{border:1px solid var(--line);border-radius:10px;background:#fff;margin:12px 0;padding:12px 14px}
-.pv h3{margin:0 0 6px;font-size:15px}
+.pv{position:relative;border:1px solid var(--line);border-radius:10px;background:#fff;margin:12px 0;padding:12px 14px}
+.pv h3{margin:0 0 6px;font-size:15px;padding-right:30px}
+.pvx{position:absolute;right:8px;top:8px;width:28px;height:28px;padding:0;line-height:1;font-size:15px;border:1px solid var(--line);background:#fff;border-radius:7px;color:var(--muted);cursor:pointer}
+.pvx:hover{border-color:var(--bad);color:var(--bad);background:var(--soft)}
 .pv .warn{color:var(--warn);font-size:13px;margin:4px 0}
 .pv .err{color:var(--bad);font-size:13px}
 .pv table{border-collapse:collapse;margin-top:6px;font-size:13px}
