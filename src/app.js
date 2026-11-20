@@ -130,7 +130,9 @@ const Cloud = {
       if(up.length){ const {error:e2}=await SB.from(SB_TABLE).upsert(up); if(e2) throw e2; }
       /* ระหว่างรอเน็ต ผู้ใช้อาจแก้เพิ่ม → เอาส่วนที่แก้หลัง snap ทับลงไป (รอบหน้าจะส่ง) */
       const now=this.rowsOf(S), final={};
-      Object.keys(Object.assign({},merged,now)).forEach(k=>{ final[k]= (k in now) ? merge3(snap[k]||{}, now[k], merged[k]||{}, true) : merged[k]; });
+      /* แถวที่เครื่องนี้ยังไม่มี (เช่น เดือนอื่นตอนล็อกอินครั้งแรก) ต้อง "คัดลอก" — ห้ามใช้ object เดียวกับ base
+         ไม่งั้นแก้ S = แก้ base ไปด้วย → ไม่นับเป็นรอส่ง และซิงก์รอบถัดไปจะเอาค่าเซิร์ฟเวอร์มาทับค่าที่เพิ่งแก้ (บั๊กถึง 20 พ.ย.) */
+      Object.keys(Object.assign({},merged,now)).forEach(k=>{ final[k]= (k in now) ? merge3(snap[k]||{}, now[k], merged[k]||{}, true) : JSON.parse(JSON.stringify(merged[k])); });
       this.base=merged; lsSet(BASE_KEY,merged);
       const changedView = JSON.stringify(final)!==JSON.stringify(now);
       S=this.stateOf(final,S.ui); lsSet(LOCAL_KEY,S);
@@ -252,8 +254,12 @@ function findHeader(rows, need){
   }
   return null;
 }
+/* รอ promise ไม่เกิน ms — เกินแล้วโยน error (กันค้างเงียบ ๆ เช่น ไฟล์เปิดค้างอยู่ใน Excel) · window.__watchT ใช้ย่นเวลาตอนทดสอบ */
+const WT=Object.assign({perm:8000,list:20000,stat:5000,read:20000,stuck:15000},window.__watchT||{});
+const withTimeout=(p,ms,msg)=>new Promise((res,rej)=>{ const t=setTimeout(()=>rej(new Error(msg)),ms); Promise.resolve(p).then(v=>{clearTimeout(t);res(v);},e=>{clearTimeout(t);rej(e);}); });
+const emsg=e=>{ const n=(e&&e.name&&e.name!=='Error')?e.name:'', m=(e&&e.message)||String(e); return n&&!m.includes(n)?`${n}: ${m}`:m; };
 async function readWorkbook(file){
-  const buf=await file.arrayBuffer();
+  const buf=await withTimeout(file.arrayBuffer(),WT.read,`อ่านไฟล์ไม่เสร็จใน ${WT.read/1000} วินาที`);
   return XLSX.read(buf,{type:'array',cellDates:false});
 }
 async function analyzeFile(file){
@@ -472,11 +478,14 @@ fin.onchange=()=>{handleFiles([...fin.files]);fin.value='';};
 ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over');}));
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over');}));
 drop.addEventListener('drop',ev=>handleFiles([...ev.dataTransfer.files]));
-async function handleFiles(files){
+/* onFail(f,e): ใช้กับโฟลเดอร์เฝ้าดู — ไฟล์ที่อ่านไม่ได้ไม่ขึ้นเป็นการ์ด (ไม่ให้ถูก mark seen) แต่ไปแจ้งในแถบเฝ้าดูและลองใหม่รอบหน้า */
+async function handleFiles(files,onFail){
   for(const f of files){
     if(f.name.startsWith('~$')) continue;
-    try{ const r=await analyzeFile(f); (Array.isArray(r)?r:[r]).forEach(x=>{ if(f._watch) x._watch=f._watch; pending.push(x); }); }
-    catch(e){ console.error(e); pending.push({kind:'skip',name:f.name,msg:'อ่านไฟล์ไม่ได้: '+e.message,_watch:f._watch}); }
+    try{ const r=await analyzeFile(f);
+      if(f._watch && pending.some(x=>x._watch===f._watch)) continue;   // สแกนซ้อนกัน — ไม่เพิ่มการ์ดซ้ำ
+      (Array.isArray(r)?r:[r]).forEach(x=>{ if(f._watch) x._watch=f._watch; pending.push(x); }); }
+    catch(e){ console.error(e); if(onFail){ onFail(f,e); continue; } pending.push({kind:'skip',name:f.name,msg:'อ่านไฟล์ไม่ได้: '+emsg(e),_watch:f._watch}); }
   }
   renderPreview();
 }
@@ -591,44 +600,95 @@ function renderQuick(){
    ------------------------------------------------------------------------------------------------- */
 const WATCH_KEY=STORE_KEY+'-watch';
 const WATCH_RE=[/^ค้างส่ง \d\d\.\d\d\.\d{4}_ตามรูป\.xlsx$/, /^เปิดบิลขาย \d\d\.\d\d\.\d{4}_pivot_summary\.xlsx$/, /^\d\d\.\d\d\.\d{4} สรุป\.xlsx$/];
+const WATCH_WHY=m=>/NotReadable|NoModificationAllowed|InvalidState|ไม่ตอบสนอง|ไม่เสร็จ/.test(m)?'ไฟล์ถูกเปิด/ล็อกอยู่':/NotFound/.test(m)?'ไฟล์กำลังถูกบันทึกหรือเพิ่งถูกย้าย':/NotAllowed|Security/.test(m)?'Chrome ไม่อนุญาตให้อ่าน':'';
 const Watch={
-  dir:null, meta:lsGet(WATCH_KEY,{seen:{},at:null,name:''}), busy:false,
+  dir:null, meta:lsGet(WATCH_KEY,{seen:{},at:null,name:''}),
+  busy:false, busyAt:0, gen:0, step:'', err:'', bad:[], note:'', found:null,
   ok(){ return !!window.showDirectoryPicker && !!window.indexedDB; },
   idb(){ return new Promise((res,rej)=>{ const r=indexedDB.open('tet-graph-report',1); r.onupgradeneeded=()=>r.result.createObjectStore('kv'); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); },
   async loadDir(){ try{ const db=await this.idb(); return await new Promise((res,rej)=>{ const t=db.transaction('kv').objectStore('kv').get('dir'); t.onsuccess=()=>res(t.result||null); t.onerror=()=>rej(t.error); }); }catch(e){ return null; } },
   async saveDir(h){ try{ const db=await this.idb(); await new Promise((res,rej)=>{ const t=db.transaction('kv','readwrite'); (h?t.objectStore('kv').put(h,'dir'):t.objectStore('kv').delete('dir')); t.oncomplete=res; t.onerror=()=>rej(t.error); }); }catch(e){} },
-  async files(){ const out=[]; for await (const [name,h] of this.dir.entries()){ if(h.kind!=='file'||name.startsWith('~$')||!WATCH_RE.some(r=>r.test(name))) continue; const f=await h.getFile(); out.push(f); } return out; },
+  /* ไล่รายชื่อไฟล์รายงานในโฟลเดอร์ → {files:[File], bad:[{name,msg}]} · ไฟล์ที่ขอข้อมูลไม่ได้ (เช่น เปิดค้างใน Excel) ข้ามแล้วจดไว้ ไม่ให้ล้มทั้งการสแกน */
+  async list(){ const files=[], bad=[];
+    for await (const [name,h] of this.dir.entries()){
+      if(h.kind!=='file'||name.startsWith('~$')||!WATCH_RE.some(r=>r.test(name))) continue;
+      try{ files.push(await withTimeout(h.getFile(),WT.stat,'ไฟล์ไม่ตอบสนอง')); }catch(e){ bad.push({name,msg:emsg(e)}); } }
+    return {files,bad}; },
+  /* สำรอง: ถ้าไล่รายชื่อทั้งโฟลเดอร์ไม่ได้ → ขอไฟล์ตามชื่อของ n วันล่าสุดโดยตรง (ชื่อไฟล์รายงานเดาได้จากวันที่) */
+  async probe(days){ const files=[], bad=[], t=new Date();
+    for(let i=0;i<days;i++){ const d=new Date(t.getFullYear(),t.getMonth(),t.getDate()-i), ds=`${pad2(d.getDate())}.${pad2(d.getMonth()+1)}.${d.getFullYear()}`;
+      for(const name of [`ค้างส่ง ${ds}_ตามรูป.xlsx`,`เปิดบิลขาย ${ds}_pivot_summary.xlsx`,`${ds} สรุป.xlsx`]){
+        try{ const h=await withTimeout(this.dir.getFileHandle(name),WT.stat,'ไฟล์ไม่ตอบสนอง'); files.push(await withTimeout(h.getFile(),WT.stat,'ไฟล์ไม่ตอบสนอง')); }
+        catch(e){ if(!(e&&e.name==='NotFoundError')) bad.push({name,msg:emsg(e)}); } }
+      if(i===0&&!files.length&&bad.length===3) throw new Error(bad[0].msg); }   // วันแรกพังทั้ง 3 ชื่อ = โฟลเดอร์ใช้ไม่ได้เลย ไม่ต้องไล่ต่อ
+    return {files,bad}; },
   key(f){ return `${f.name}|${f.lastModified}|${f.size}`; },
+  reset(){ this.gen++; this.busy=false; this.err=''; this.bad=[]; this.note=''; this.found=null; },
   async pick(){
-    try{ const h=await window.showDirectoryPicker({id:'tet-report',mode:'read'}); this.dir=h; await this.saveDir(h);
-      const fs=await this.files(); this.meta={seen:Object.fromEntries(fs.map(f=>[this.key(f),1])),at:Date.now(),name:h.name}; this.save();
+    let h; try{ h=await window.showDirectoryPicker({id:'tet-report',mode:'read'}); }catch(e){ if(e&&e.name!=='AbortError') toast('เลือกโฟลเดอร์ไม่ได้: '+emsg(e)); return; }
+    const prev=this.dir; let same=false;
+    if(prev&&this.meta.at){ try{ same=!!(await withTimeout(prev.isSameEntry(h),WT.stat,'x')); }catch(e){ same=h.name===this.meta.name; } }   // เทียบไม่ได้ → ดูจากชื่อโฟลเดอร์
+    if(same){ /* เลือกโฟลเดอร์เดิมซ้ำ = เชื่อมใหม่ — เก็บรายการที่เห็นแล้วไว้ ไฟล์ที่ยังไม่ได้นำเข้ายังขึ้นตามปกติ */
+      this.dir=h; await this.saveDir(h); this.reset(); toast(`เชื่อมโฟลเดอร์ "${h.name}" ใหม่แล้ว`); return this.scan(true); }
+    this.dir=h;
+    try{ const {files:fs}=await withTimeout(this.list(),WT.list,`อ่านรายชื่อไฟล์ไม่เสร็จใน ${WT.list/1000} วินาที`);
+      await this.saveDir(h); this.reset();
+      this.meta={seen:Object.fromEntries(fs.map(f=>[this.key(f),1])),at:Date.now(),name:h.name}; this.save();
       toast(`เฝ้าดูโฟลเดอร์ "${h.name}" แล้ว — ไฟล์ใหม่ที่มาหลังจากนี้จะขึ้นให้ตรวจเอง (${fs.length} ไฟล์เดิมไม่นำเข้า)`); this.render('granted'); }
-    catch(e){ if(e&&e.name!=='AbortError') toast('เลือกโฟลเดอร์ไม่ได้: '+e.message); }
+    catch(e){ this.dir=prev; toast('เลือกโฟลเดอร์ไม่ได้: '+emsg(e)); }
   },
   save(){ lsSet(WATCH_KEY,this.meta); },
-  async forget(){ this.dir=null; await this.saveDir(null); this.meta={seen:{},at:null,name:''}; this.save(); this.render(); toast('ยกเลิกเฝ้าดูโฟลเดอร์แล้ว'); },
-  async perm(ask){ if(!this.dir) return 'none'; try{ let p=await this.dir.queryPermission({mode:'read'}); if(p!=='granted'&&ask) p=await this.dir.requestPermission({mode:'read'}); return p; }catch(e){ return 'denied'; } },
+  async forget(){ this.dir=null; await this.saveDir(null); this.reset(); this.meta={seen:{},at:null,name:''}; this.save(); this.render(); toast('ยกเลิกเฝ้าดูโฟลเดอร์แล้ว'); },
+  async perm(ask){
+    let p=await withTimeout(this.dir.queryPermission({mode:'read'}),WT.perm,'Chrome ไม่ตอบเรื่องสิทธิ์อ่านโฟลเดอร์');
+    if(p!=='granted'&&ask){ this.step='รอกด "อนุญาต" ในป๊อปอัปของ Chrome'; this.render('granted'); p=await this.dir.requestPermission({mode:'read'}); }
+    return p; },
+  /* ทุกขั้นมีเวลาจำกัด + แสดงสถานะ/สาเหตุในแถบเสมอ — ห้ามเงียบ (20 พ.ย.: ผู้ใช้กด "สแกนใหม่" แล้วไม่มีอะไรเกิดขึ้น) */
   async scan(ask){
-    if(!this.dir||this.busy) return; this.busy=true;
+    if(!this.dir) return;
+    if(this.busy){ if(!ask) return; if(Date.now()-this.busyAt<WT.stuck){ toast('กำลังสแกนอยู่ รอสักครู่…'); return; } }   // ค้างเกิน WT.stuck → เริ่มรอบใหม่ทับรอบเก่า
+    const gen=++this.gen, mine=()=>gen===this.gen;
+    this.busy=true; this.busyAt=Date.now(); this.err=''; this.step='ตรวจสิทธิ์อ่านโฟลเดอร์'; this.render('granted');
     try{
-      const p=await this.perm(ask); if(p!=='granted'){ this.render(p); return; }
+      const p=await this.perm(ask); if(!mine()) return;
+      if(p!=='granted'){ this.busy=false; this.render(p); return; }
+      this.step='อ่านรายชื่อไฟล์'; this.render('granted');
+      let r, note='';
+      try{ r=await withTimeout(this.list(),WT.list,`อ่านรายชื่อไฟล์ไม่เสร็จใน ${WT.list/1000} วินาที`); }
+      catch(e){ console.error(e); note=emsg(e);
+        try{ r=await withTimeout(this.probe(31),WT.list,'ถามหาไฟล์ตามชื่อไม่เสร็จ'); }catch(e2){ const m2=emsg(e2); throw new Error(m2===note?note:`${note} · ${m2}`); } }
+      if(!mine()) return;
       const inPv=new Set(pending.map(x=>x._watch).filter(Boolean)); // ไฟล์ที่รออยู่ในรายการแล้ว — ไม่เพิ่มซ้ำ
-      const fs=(await this.files()).filter(f=>{const k=this.key(f);return !this.meta.seen[k]&&!inPv.has(k);}).sort((a,b)=>a.name.localeCompare(b.name,'th'));
+      const fs=r.files.filter(f=>{const k=this.key(f);return !this.meta.seen[k]&&!inPv.has(k);}).sort((a,b)=>a.name.localeCompare(b.name,'th'));
+      const bad=r.bad.slice(); let fail=0;
+      if(fs.length){ this.step=`อ่านไฟล์ใหม่ ${fs.length} ไฟล์`; this.render('granted');
+        fs.forEach(f=>{ f._watch=this.key(f); });
+        await handleFiles(fs,(f,e)=>{ fail++; bad.push({name:f.name,msg:emsg(e)}); });
+        if(!mine()) return; }
+      const ok=fs.length-fail;
       this.meta.last=Date.now(); this.save();
-      if(fs.length){ fs.forEach(f=>{ f._watch=this.key(f); }); await handleFiles(fs); toast(`พบไฟล์ใหม่ในโฟลเดอร์ ${fs.length} ไฟล์ — ตรวจแล้วกด "บันทึกทั้งหมด"`); }
-      this.render('granted', fs.length);
-    }catch(e){ console.error(e); toast('สแกนโฟลเดอร์ไม่ได้: '+e.message); this.render('granted'); }
-    finally{ this.busy=false; }
+      this.bad=bad; this.note=note; this.found=ok; this.busy=false; this.render('granted');
+      if(ok) toast(`พบไฟล์ใหม่ในโฟลเดอร์ ${ok} ไฟล์ — ตรวจแล้วกด "บันทึกทั้งหมด"`);
+      else if(ask&&!bad.length) toast('ไม่มีไฟล์ใหม่ — ไฟล์ที่บันทึก / ยกเลิก / กด ✕ ไปแล้วจะไม่ขึ้นซ้ำ');
+    }catch(e){ console.error(e); if(!mine()) return; this.err=emsg(e); this.busy=false; this.render('granted'); }
   },
   markSeen(ps){ let ch=false; ps.forEach(p=>{ if(p._watch){ this.meta.seen[p._watch]=1; ch=true; } }); if(ch) this.save(); },
   render(perm,found){
     const el=$('#watchBar'); if(!el) return;
     if(!this.ok()){ el.hidden=true; return; }
-    el.hidden=false;
+    el.hidden=false; if(found!=null) this.found=found;
     if(!this.dir){ el.innerHTML=`<span class="hint">นำเข้าอัตโนมัติ: ให้โปรแกรมสแกนโฟลเดอร์รายงานทุกครั้งที่เปิด (Chrome/Edge)</span><button class="btn sm pri" data-w="pick">📂 เลือกโฟลเดอร์รายงาน</button>`; }
     else if(perm&&perm!=='granted'){ el.innerHTML=`<span class="hint">📂 โฟลเดอร์ <b>${esc(this.meta.name)}</b> — Chrome ขอให้ยืนยันสิทธิ์อ่านอีกครั้ง</span><button class="btn sm pri" data-w="scan">กดเพื่อสแกนไฟล์ใหม่</button><button class="btn sm" data-w="forget">ยกเลิก</button>`; }
-    else { const t=this.meta.last?new Date(this.meta.last):null;
-      el.innerHTML=`<span class="hint">📂 เฝ้าดู <b>${esc(this.meta.name)}</b>${t?` · สแกนล่าสุด ${pad2(t.getHours())}:${pad2(t.getMinutes())}`:''}${found!=null?` · ${found?`พบไฟล์ใหม่ ${found} ไฟล์`:'ไม่มีไฟล์ใหม่'}`:''}</span><button class="btn sm" data-w="scan">🔄 สแกนใหม่</button><button class="btn sm" data-w="pick" title="เปลี่ยนโฟลเดอร์">เปลี่ยน</button><button class="btn sm" data-w="forget">ยกเลิก</button>`; }
+    else { const t=this.meta.last?new Date(this.meta.last):null, td=new Date();
+      const tt=t?((t.toDateString()===td.toDateString()?'':`${pad2(t.getDate())}/${pad2(t.getMonth()+1)} `)+`${pad2(t.getHours())}:${pad2(t.getMinutes())}`):'';
+      const st=this.busy?` · ⏳ กำลังสแกน… (${esc(this.step)})`
+        :this.err?` · <b style="color:var(--bad)">⚠ สแกนไม่สำเร็จ: ${esc(this.err)}</b>`
+        :(this.found!=null?` · ${this.found?`พบไฟล์ใหม่ ${this.found} ไฟล์`:'ไม่มีไฟล์ใหม่'}`:'');
+      const more=this.busy?'':
+        (this.bad.length?`<div class="warn">⚠ อ่านไม่ได้ ${this.bad.length} ไฟล์ — ถ้าเปิดไฟล์ค้างอยู่ใน Excel ให้ปิดไฟล์ก่อน แล้วกด "สแกนใหม่": ${this.bad.slice(0,6).map(x=>{ const w=WATCH_WHY(x.msg), c=x.msg.split(':')[0].slice(0,40); return `<b title="${esc(x.msg)}">${esc(x.name)}</b> (${esc(w?w+' · '+c:x.msg.slice(0,80))})`; }).join(' · ')}${this.bad.length>6?' …':''}</div>`:'')
+        +(this.note?`<div class="hint">ไล่รายชื่อทั้งโฟลเดอร์ไม่ได้ (${esc(this.note)}) — ตรวจเฉพาะไฟล์รายงานของ 31 วันล่าสุดแทน</div>`:'')
+        +(this.err?`<div class="hint">กด "สแกนใหม่" อีกครั้ง · ถ้ายังไม่ได้ กด "เปลี่ยน" แล้วเลือกโฟลเดอร์เดิม (ไฟล์ที่ยังไม่ได้นำเข้าจะยังขึ้นตามปกติ) · ระหว่างนี้ลากไฟล์มาวางเองได้</div>`:'');
+      el.innerHTML=`<span class="hint">📂 เฝ้าดู <b>${esc(this.meta.name)}</b>${tt?` · สแกนล่าสุด ${tt}`:''}${st}</span><button class="btn sm" data-w="scan">🔄 สแกนใหม่</button><button class="btn sm" data-w="pick" title="เปลี่ยนโฟลเดอร์ / เชื่อมโฟลเดอร์เดิมใหม่">เปลี่ยน</button><button class="btn sm" data-w="forget">ยกเลิก</button>${more}`; }
     el.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ const a=b.dataset.w; if(a==='pick') this.pick(); if(a==='scan') this.scan(true); if(a==='forget') this.forget(); });
   },
   async boot(){ if(!this.ok()) return; this.dir=await this.loadDir(); if(this.dir&&!this.meta.name) this.meta.name=this.dir.name; this.render(); if(this.dir) this.scan(false);

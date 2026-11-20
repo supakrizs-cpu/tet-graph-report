@@ -31,6 +31,7 @@ async def login(pg):
   await pg.fill('#lgU','sale'); await pg.fill('#lgP','pw'); await pg.click('#lgBtn'); await pg.wait_for_timeout(800)
 async def edit(pg,d,k,v):
   await pg.click('#tabs button[data-v="grid"]'); await pg.wait_for_timeout(200)
+  if await pg.input_value('#selMonth')!=d[:7]: await pg.select_option('#selMonth',d[:7]); await pg.wait_for_timeout(300)
   i=pg.locator(f'#grid input[data-d="{d}"][data-k="{k}"]'); await i.fill(str(v)); await i.press('Enter'); await pg.wait_for_timeout(200)
 sync=lambda pg: pg.text_content('#sync')
 srv=lambda d,k: DB['m:2026-10']['data']['d'].get(d,{}).get(k)

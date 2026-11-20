@@ -180,3 +180,5 @@ details.card summary{cursor:pointer;padding:12px 16px;font-weight:600}
 .watch[hidden]{display:none}
 .watch b{color:#1f4e79}
 .watch .hint{margin-right:auto}
+.watch div.hint,.watch .warn{flex-basis:100%;margin:0;line-height:1.5}
+.watch .warn{color:var(--warn)}
