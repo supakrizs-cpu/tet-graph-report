@@ -96,8 +96,8 @@ const Cloud = {
   base:lsGet(BASE_KEY,null),            // {rowKey: data} ข้อมูลเซิร์ฟเวอร์ครั้งล่าสุดที่ซิงก์ (null = ยังไม่เคยซิงก์ในเครื่องนี้)
   meta:lsGet(META_KEY,{}),              // {editAt: เวลาแก้ล่าสุดในเครื่อง, user}
   timer:null, busy:false, again:false, retry:null,
-  rowsOf(st){ const r={maps:st.maps}; Object.entries(st.months||{}).forEach(([ym,m])=>r['m:'+ym]=m); return r; },
-  stateOf(rows,ui){ const st=freshState(); st.ui=ui||{}; if(rows.maps) st.maps=rows.maps;
+  rowsOf(st){ const r={maps:st.maps}; if(st.brk) r.brk=st.brk; Object.entries(st.months||{}).forEach(([ym,m])=>r['m:'+ym]=m); return r; },
+  stateOf(rows,ui){ const st=freshState(); st.ui=ui||{}; if(rows.maps) st.maps=rows.maps; if(rows.brk) st.brk=rows.brk;
     Object.entries(rows).forEach(([k,v])=>{ if(k.startsWith('m:')) st.months[k.slice(2)]=v; }); return st; },
   pendingCount(){ if(!this.base) return 0; return countDiff(this.base,this.rowsOf(S)); },
   queue(){ clearTimeout(this.timer); this.timer=setTimeout(()=>{this.timer=null;this.sync();},700); setSync(); },
@@ -451,7 +451,7 @@ function setVal(d,k,raw){
 const DRAFT={t:null,fn:null};
 function draft(fn){ clearTimeout(DRAFT.t); DRAFT.fn=fn; DRAFT.t=setTimeout(flushDraft,400); }
 function flushDraft(){ clearTimeout(DRAFT.t); DRAFT.t=null; const f=DRAFT.fn; DRAFT.fn=null; if(f) f(); }
-const typing=()=>{ const a=document.activeElement; return !!(a && a.matches && a.matches('#grid input[data-k], #quickForm input[data-q], #salesBox input[data-ed]')); };
+const typing=()=>{ const a=document.activeElement; return !!(a && a.matches && a.matches('#grid input[data-k], #quickForm input[data-q], #salesBox input[data-ed], #brkBox td[contenteditable], #brkBox input')); };
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') flushDraft(); });
 window.addEventListener('pagehide',flushDraft);
 function refresh(){
@@ -461,6 +461,7 @@ function refresh(){
   if(curView==='year') renderYear();
   if(curView==='settings') renderSettings();
   if(curView==='sales') renderSales();
+  if(curView==='brk') renderBrk();
   if(curView==='upload') renderQuick();
 }
 $$('#tabs button').forEach(b=>b.onclick=()=>{
@@ -914,8 +915,8 @@ async function snap(card){
   const shot=card.querySelector('.shot');
   const sc=shot.querySelector('.xa-scroll, .sr-scroll'); if(sc) sc.style.overflow='visible';
   const hide=[...shot.querySelectorAll('.noshot, td.in input')]; hide.forEach(e=>e.style.display='none');
-  const inner=shot.querySelector('.xa-inner, table.sr');
-  const w=Math.max(shot.scrollWidth, inner?inner.scrollWidth+32:0);
+  const inner=shot.querySelector('.xa-inner, table.sr, table.bk');
+  const w=inner&&inner.matches('table.bk')?inner.offsetWidth+32:Math.max(shot.scrollWidth, inner?inner.scrollWidth+32:0);   // ตารางเบรค: รูปกว้างเท่าตาราง ไม่มีขอบขาวด้านขวา
   try{ return await html2canvas(shot,{backgroundColor:'#ffffff',scale:1.5,width:w,windowWidth:Math.max(w+40,1200),logging:false}); }
   finally{ if(sc) sc.style.overflow=''; hide.forEach(e=>e.style.display=''); }
 }
@@ -1273,6 +1274,132 @@ function exportYear(y){
   });
   if(!n){ toast('ไม่มีข้อมูลปี '+y); return; }
   XLSX.writeFile(wb,`สรุปปี${y}-จากโปรแกรม.xlsx`);
+}
+
+/* ---------------- 17. รายงานเบรคภายใน / ผ้าตีกลับ / COMMENT ลูกค้า (แท็บ "เบรค & COMMENT") ----------------
+   ตารางข้อความกรอกเอง (ไม่มีในไฟล์ Excel ที่อัปโหลด) ผู้ใช้แคปรูปส่งทุกวัน — หน้าตาตาม Excel เดิมของผู้ใช้ (20 พ.ย.)
+   S.brk = {title, rows:{id:{o:ลำดับ, l:ป้ายวันที่ (ข้อความ), c:{คอลัมน์:ข้อความ}, from?:'YYYY-MM-DD'}}}
+   ซิงก์เป็นแถว key 'brk' ในตาราง graph_report เดิม (ไม่ต้องเพิ่มตาราง) · rows เป็น object ไม่ใช่ array เพื่อให้รวมรายช่องได้
+   แถวสุดท้ายที่มี from = "แถวเลื่อนวันที่เอง": ป้าย = from ถึง "ข้อมูลถึงวันที่" → วันที่ไม่มีเหตุการณ์ใหม่ไม่ต้องแก้อะไร แค่แคปรูป
+   ชื่อลูกค้าอยู่ใน title ที่ผู้ใช้พิมพ์เอง (เก็บใน Supabase) — ห้ามใส่ชื่อลูกค้า/ข้อมูลจริงในโค้ด (repo เป็น public)
+   ------------------------------------------------------------------------------------------------- */
+const BRK_GROUPS=[['a','เบรคภายใน',['ย้อม','ตกแต่ง','SALE','QA']],['b','ผ้าตีกลับ',['ย้อม','ตกแต่ง','SALE','QA']],['c','COMMENT',['ย้อม','ตกแต่ง','SALE','LAB','QA']]];
+const BRK_COLS=BRK_GROUPS.flatMap(([g,,subs])=>subs.map((n,i)=>({k:g+(i+1),g,n})));
+const BRK_KEYS=['l',...BRK_COLS.map(c=>c.k)];
+const BRK_W={a1:96,a2:70,a3:52,a4:44,b1:80,b2:170,b3:52,b4:44,c1:110,c2:200,c3:52,c4:80,c5:170};
+const BRK_TITLE='รายงานข้อมูลผ้าเบรคภายในภายนอกและ COMMENT ลูกค้า';
+const MON_EN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const brkD1=d=>{ const x=parseYmd(d); return `${pad2(x.getDate())}-${MON_EN[x.getMonth()]}`; };   // 09-Jun (วันเดียว)
+const brkD2=d=>{ const x=parseYmd(d); return `${x.getDate()} ${MON_EN[x.getMonth()]}`; };          // 9 Jun (ในช่วง)
+const brkSpan=(a,b)=>a>=b?brkD1(a):`${brkD2(a)} - ${brkD2(b)}`;
+const brkShift=(d,n)=>{ const x=parseYmd(d); x.setDate(x.getDate()+n); return ymd(x); };
+const brkAsOf=()=>curUpto()||ymd(new Date());
+function brkMut(){ if(!S.brk||typeof S.brk!=='object') S.brk={title:BRK_TITLE,rows:{}}; if(!S.brk.rows) S.brk.rows={}; return S.brk; }
+function brkRows(){ const B=S.brk; return B&&B.rows?Object.entries(B.rows).map(([id,r])=>Object.assign({id},r)).sort((x,y)=>(x.o||0)-(y.o||0)):[]; }
+function brkNew(B,o,extra){ const id='r'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); B.rows[id]=Object.assign({o,c:{}},extra||{}); return id; }
+const brkHas=r=>!!(r.l||Object.keys(r.c||{}).length);
+/* อ่านวันเริ่มจากป้ายข้อความ เช่น "10 Oct - 19 Nov" / "09-Jun" → ปีล่าสุดที่ไม่เกินวันอ้างอิง */
+function brkParseStart(label,asOf){ const m=/(\d{1,2})\s*[-\s]\s*([A-Za-z]{3})/.exec(label||''); if(!m) return null;
+  const mi=MON_EN.findIndex(x=>x.toLowerCase()===m[2].toLowerCase()); if(mi<0||+m[1]<1||+m[1]>31) return null;
+  let y=+asOf.slice(0,4), d=`${y}-${pad2(mi+1)}-${pad2(+m[1])}`; if(d>asOf) d=`${y-1}-${pad2(mi+1)}-${pad2(+m[1])}`; return d; }
+/* ข้อความจากคลิปบอร์ดของ Excel (คั่นแท็บ, ช่องที่มีขึ้นบรรทัดจะอยู่ในเครื่องหมายคำพูด) → ตาราง */
+function parseTsv(t){ const out=[]; let row=[],cur='',q=false,started=false; t=String(t||'').replace(/\r\n?/g,'\n');
+  for(let i=0;i<t.length;i++){ const ch=t[i];
+    if(q){ if(ch==='"'){ if(t[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=ch; }
+    else if(ch==='"'&&cur===''){ q=true; started=true; }
+    else if(ch==='\t'){ row.push(cur); cur=''; started=true; }
+    else if(ch==='\n'){ row.push(cur); out.push(row); row=[]; cur=''; started=false; }
+    else { cur+=ch; started=true; } }
+  if(started||row.length){ row.push(cur); out.push(row); }
+  return out; }
+const brkClean=v=>String(v==null?'':v).replace(/ /g,' ').replace(/[ \t]+\n/g,'\n').trim();
+function brkSet(B,id,k,v){ const R=B.rows[id]; if(!R) return;
+  if(k==='l'){ if(v) R.l=v; else delete R.l; delete R.from; }
+  else { R.c=R.c||{}; if(v) R.c[k]=v; else delete R.c[k]; } }
+function brkAddEvent(D){
+  const B=brkMut(), rows=brkRows(), last=rows[rows.length-1]; let o=last?(last.o||0):0, auto=false;
+  if(last&&last.from){ auto=true; const R=B.rows[last.id];
+    if(last.from<D){ R.l=brkSpan(last.from,brkShift(D,-1)); delete R.from; }
+    else if(!Object.keys(last.c||{}).length){ delete B.rows[last.id]; o=rows.length>1?(rows[rows.length-2].o||0):0; }
+    else { R.l=brkD1(last.from); delete R.from; } }
+  const id=brkNew(B,o+1,{l:brkD1(D)});
+  if(auto) brkNew(B,o+2,{from:brkShift(D,1)});          // ช่วงถัดไปเริ่มวันรุ่งขึ้น — จะโผล่เองเมื่อ "ข้อมูลถึงวันที่" ไปถึง
+  save(); renderBrk(); return id; }
+function brkAddBlank(beforeId){
+  const B=brkMut(), rows=brkRows(); let o;
+  const at=beforeId?rows.findIndex(r=>r.id===beforeId):(rows.length&&rows[rows.length-1].from?rows.length-1:-1);
+  if(at>=0){ const prev=at>0?(rows[at-1].o||0):(rows[at].o||0)-2; o=(prev+(rows[at].o||0))/2; }
+  else o=(rows.length?(rows[rows.length-1].o||0):0)+1;
+  const id=brkNew(B,o); save(); renderBrk(); return id; }
+function brkPaste(td,grid){
+  const B=brkMut(); let rows=brkRows(); const tr=td.closest('tr'); const c0=Math.max(0,BRK_KEYS.indexOf(td.dataset.k));
+  let ri=tr.dataset.id==='__new'?rows.length:rows.findIndex(r=>r.id===tr.dataset.id); if(ri<0) ri=rows.length;
+  let o=rows.length?(rows[rows.length-1].o||0):0, n=0;
+  /* คัดลอกติดหัวตารางมาด้วยได้: บรรทัดชื่อรายงาน → ใช้เป็นชื่อรายงาน (ถ้ายังไม่ได้ตั้ง) · บรรทัดหัวคอลัมน์/บรรทัดว่าง → ข้าม */
+  const hdr=new Set(['วันที่',...BRK_GROUPS.map(g=>g[1]),...BRK_COLS.map(c=>c.n)]);
+  grid=grid.map(l=>l.map(brkClean)).filter(l=>{ const f=l.filter(Boolean); if(!f.length) return false;
+    if(c0===0&&f.length===1&&/^รายงาน/.test(l[0])){ if(!B.title||B.title===BRK_TITLE) B.title=l[0].replace(/\n+/g,' '); return false; }
+    return !f.every(v=>hdr.has(v)); });
+  grid.forEach((line,i)=>{ let id=rows[ri+i]&&rows[ri+i].id; if(!id){ id=brkNew(B,++o); }
+    line.forEach((v,j)=>{ const k=BRK_KEYS[c0+j]; if(!k) return; brkSet(B,id,k,v); }); n++; });
+  save(); renderBrk(); toast(`วางแล้ว ${n} แถว`); }
+function renderBrk(){
+  const box=$('#brkBox'); const B=S.brk||{title:BRK_TITLE,rows:{}}; const asOf=brkAsOf();
+  let rows=brkRows(); const last=rows[rows.length-1]; const open=last&&last.from?last:null;
+  if(open&&open.from>asOf) rows=rows.slice(0,-1);                       // แถวเลื่อนเองที่ยังไม่ถึงวันเริ่ม — ยังไม่แสดง
+  const N=S.ui.brkN==null?15:+S.ui.brkN; const total=rows.length; const show=N>0?rows.slice(-N):rows;
+  const lab=r=>r===open?brkSpan(r.from,asOf):(r.l||(r.from?brkD1(r.from):''));
+  const tdc=(r,c)=>`<td class="g${c.g}" contenteditable="plaintext-only" data-k="${c.k}">${esc((r.c||{})[c.k]||'')}</td>`;
+  const trh=r=>`<tr data-id="${r.id}"><td class="bd${r===open?' auto':''}" ${r===open?'title="วันที่ของแถวนี้เลื่อนตาม &quot;ข้อมูลถึงวันที่&quot; เอง — แก้วันเริ่มได้ที่ใต้ตาราง"':'contenteditable="plaintext-only"'} data-k="l">${esc(lab(r))}</td>${BRK_COLS.map(c=>tdc(r,c)).join('')}<td class="noshot bx">${r.id==='__new'?'':`<button data-ins title="แทรกแถวว่างเหนือแถวนี้">＋</button><button data-del title="ลบแถวนี้">✕</button>`}</td></tr>`;
+  const fromGuess=open?open.from:((last&&brkParseStart(last.l,asOf))||asOf);
+  const card=document.createElement('div'); card.className='card';
+  card.innerHTML=`<div class="cardbar"><span class="hint" style="margin-right:auto;align-self:center">คลิกช่องเพื่อพิมพ์ (Enter = เสร็จ · Alt+Enter = ขึ้นบรรทัดใหม่) · คัดลอกหลายช่องจาก Excel มาวางได้ (Ctrl+V) · ชื่อรายงานบรรทัดบนสุดคลิกแก้ได้</span>
+      <span class="hint" style="align-self:center">แสดง</span><select class="btn sm" id="brkN">${[10,15,20,30,50,0].map(n=>`<option value="${n}" ${n===N?'selected':''}>${n?n+' แถวล่าสุด':'ทุกแถว'}</option>`).join('')}</select>
+      <button class="btn sm" data-copy>คัดลอกรูป</button><button class="btn sm" data-dl>ดาวน์โหลด PNG</button></div>
+    <div class="shot"><div class="sr-scroll"><table class="bk">
+      <colgroup><col style="width:150px">${BRK_COLS.map(c=>`<col style="width:${BRK_W[c.k]}px">`).join('')}<col class="noshot"></colgroup>
+      <tr class="bt"><td colspan="${BRK_KEYS.length}" contenteditable="plaintext-only" data-bt>${esc(B.title||BRK_TITLE)}</td><td class="noshot bx"></td></tr>
+      <tr class="bh"><th rowspan="2" class="bd">วันที่</th>${BRK_GROUPS.map(([g,n,subs])=>`<th colspan="${subs.length}" class="g${g}">${n}</th>`).join('')}<th rowspan="2" class="noshot bx"></th></tr>
+      <tr class="bh2">${BRK_COLS.map(c=>`<th class="g${c.g}">${c.n}</th>`).join('')}</tr>
+      ${show.length?show.map(trh).join(''):trh({id:'__new',c:{}})}
+    </table></div></div>
+    <div class="row brkctl">
+      <button class="btn sm pri" id="brkEv">＋ เพิ่มแถวเหตุการณ์วันที่</button><input type="date" class="btn sm" id="brkEvD" value="${asOf}">
+      <button class="btn sm" id="brkBlank">＋ แถวว่าง</button>
+      <span class="hint">แสดง ${show.length} จาก ${total} แถว</span>
+      <label class="hint brkauto"><input type="checkbox" id="brkAuto" ${open?'checked':''}> แถวสุดท้าย: ให้วันที่สิ้นสุดเลื่อนตาม "ข้อมูลถึงวันที่" เอง · เริ่มวันที่</label><input type="date" class="btn sm" id="brkFrom" value="${fromGuess}">
+    </div>`;
+  box.innerHTML=''; box.appendChild(card);
+  const tb=card.querySelector('table.bk');
+  const stored=td=>{ const id=td.closest('tr').dataset.id, R=(S.brk&&S.brk.rows||{})[id]; if(!R) return ''; return td.dataset.k==='l'?(R.l||''):((R.c||{})[td.dataset.k]||''); };
+  const commit=td=>{
+    if(td.dataset.bt!=null){ const v=brkClean(td.innerText).replace(/\n+/g,' ')||BRK_TITLE; if(v!==((S.brk&&S.brk.title)||BRK_TITLE)){ brkMut().title=v; save(); } td.textContent=v; return; }
+    const tr=td.closest('tr'), v=brkClean(td.innerText); if(v===stored(td)) return;
+    const Bm=brkMut(); if(tr.dataset.id==='__new'){ const rs=brkRows(); tr.dataset.id=brkNew(Bm,(rs.length?(rs[rs.length-1].o||0):0)+1); }
+    brkSet(Bm,tr.dataset.id,td.dataset.k,v); save(); };
+  tb.addEventListener('focusout',e=>{ const td=e.target.closest&&e.target.closest('td[contenteditable]'); if(td) commit(td); });
+  tb.addEventListener('keydown',e=>{ const td=e.target.closest&&e.target.closest('td[contenteditable]'); if(!td) return;
+    if(e.key==='Enter'&&!e.altKey&&!e.shiftKey){ e.preventDefault(); td.blur(); }
+    else if(e.key==='Enter'&&e.altKey){ e.preventDefault(); document.execCommand('insertText',false,'\n'); }
+    else if(e.key==='Escape'){ td.textContent=td.dataset.bt!=null?((S.brk&&S.brk.title)||BRK_TITLE):stored(td); td.blur(); } });
+  tb.addEventListener('paste',e=>{ const td=e.target.closest&&e.target.closest('td[contenteditable]'); if(!td) return;
+    const text=(e.clipboardData||window.clipboardData).getData('text'); e.preventDefault(); const grid=parseTsv(text);
+    if(td.dataset.bt!=null||(grid.length<=1&&(grid[0]||[]).length<=1)){ document.execCommand('insertText',false,grid.length?grid[0][0]:''); return; }
+    td.blur(); brkPaste(td,grid); });
+  tb.addEventListener('click',e=>{ const b=e.target.closest&&e.target.closest('button'); if(!b) return; const id=b.closest('tr').dataset.id;
+    if(b.dataset.ins!=null){ brkAddBlank(id); return; }
+    if(b.dataset.del!=null){ const R=(S.brk&&S.brk.rows||{})[id]; if(!R) return;
+      if(brkHas(R)&&!b.dataset.arm){ b.dataset.arm='1'; b.textContent='ลบ?'; b.classList.add('arm'); setTimeout(()=>{ if(b.isConnected){ delete b.dataset.arm; b.textContent='✕'; b.classList.remove('arm'); } },3000); return; }
+      delete brkMut().rows[id]; save(); renderBrk(); } });
+  $('#brkN').onchange=()=>{ S.ui.brkN=+$('#brkN').value; save(); renderBrk(); };
+  $('#brkEv').onclick=()=>{ const D=$('#brkEvD').value||asOf; const id=brkAddEvent(D); const tr=$(`#brkBox tr[data-id="${id}"]`); if(tr){ tr.scrollIntoView({block:'nearest'}); const c=tr.querySelector('td[data-k="c2"]'); if(c) c.focus(); } else toast(`เพิ่มแถว ${brkD1(D)} แล้ว — เลือก "ทุกแถว" เพื่อดู`); };
+  $('#brkBlank').onclick=()=>{ const id=brkAddBlank(); const tr=$(`#brkBox tr[data-id="${id}"]`); if(tr){ const c=tr.querySelector('td[data-k="l"]'); if(c) c.focus(); } };
+  $('#brkAuto').onchange=()=>{ const Bm=brkMut(), rs=brkRows(), L=rs[rs.length-1], from=$('#brkFrom').value||asOf;
+    if($('#brkAuto').checked){ if(L&&!L.from){ const R=Bm.rows[L.id]; R.from=from; delete R.l; } else if(!L) brkNew(Bm,1,{from}); }
+    else if(L&&L.from){ const R=Bm.rows[L.id]; R.l=brkSpan(L.from,L.from>asOf?L.from:asOf); delete R.from; }
+    save(); renderBrk(); };
+  $('#brkFrom').onchange=()=>{ const rs=brkRows(), L=rs[rs.length-1]; if(L&&L.from&&$('#brkFrom').value){ brkMut().rows[L.id].from=$('#brkFrom').value; save(); renderBrk(); } };
+  wireShot(card,`เบรค-COMMENT-${asOf}`);
 }
 
 /* ---------------- 15. เริ่ม + ออนไลน์ ---------------- */

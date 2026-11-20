@@ -182,3 +182,25 @@ details.card summary{cursor:pointer;padding:12px 16px;font-weight:600}
 .watch .hint{margin-right:auto}
 .watch div.hint,.watch .warn{flex-basis:100%;margin:0;line-height:1.5}
 .watch .warn{color:var(--warn)}
+
+/* แท็บ เบรค & COMMENT (ตารางข้อความ หน้าตาตาม Excel ของผู้ใช้ — สีพื้นกำหนดตายตัวเพื่อรูปส่ง LINE) */
+table.bk{border-collapse:collapse;font-size:14px;background:#fff;color:#000;table-layout:auto}
+table.bk td,table.bk th{border:1px solid #222;padding:3px 8px;text-align:center;vertical-align:middle;height:26px;white-space:pre-wrap;overflow-wrap:break-word;max-width:300px;font-weight:400}
+table.bk th{white-space:nowrap}
+table.bk tr.bt td{font-size:15px;max-width:none;background:#fff}
+table.bk th{font-weight:700}
+table.bk tr.bh2 th{color:#c55a11;font-weight:700}
+table.bk .bd{background:#d9d9d9;white-space:nowrap}
+table.bk th.bd{background:#fff}
+table.bk .ga{background:#fce4d6}
+table.bk .gb{background:#ffe699}
+table.bk .gc{background:#c6e0b4}
+table.bk td[contenteditable]{cursor:text}
+table.bk td[contenteditable]:focus{outline:2px solid #2a78d6;outline-offset:-2px;background:#fff}
+table.bk td.auto{cursor:default}
+table.bk .bx{border:none!important;background:none!important;white-space:nowrap;padding:0 0 0 6px;max-width:none}
+table.bk .bx button{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:6px;min-width:24px;height:22px;padding:0 5px;margin-right:3px;cursor:pointer;font-size:12px;line-height:1}
+table.bk .bx button:hover{border-color:var(--accent);color:var(--accent)}
+table.bk .bx button[data-del]:hover,table.bk .bx button.arm{border-color:var(--bad);color:var(--bad)}
+.brkctl{padding:10px 16px 14px}
+.brkctl .brkauto{margin-left:auto;display:flex;gap:6px;align-items:center}
