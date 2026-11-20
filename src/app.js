@@ -273,6 +273,8 @@ async function analyzeFile(file){
       if(rows.some(r=>r&&r.some(v=>norm(v)===norm('รวมยอดขาย')))){ const x=parseSalesBook(rows,name+' · ชีต '+sn,sn); if(Object.keys(x.months).length){ out.push(x); break; } } }
     return out;
   }
+  // ก2) ตารางเบรคภายใน / ผ้าตีกลับ / COMMENT ลูกค้า (หัวข้อ 17 — นำเข้าทั้งตารางครั้งแรก)
+  for(const sn of wb.SheetNames){ const x=parseBrkSheet(sheetRows(wb.Sheets[sn]),name,sn); if(x) return x; }
   // ข) ไฟล์เปิดบิลสั่งย้อม (สรุป)
   for(const sn of wb.SheetNames){
     const rows=sheetRows(wb.Sheets[sn]);
@@ -503,6 +505,15 @@ function renderPreview(){
         ${p.warns.map(w=>`<div class="warn">⚠ ${esc(w)}</div>`).join('')}`;
       box.appendChild(el); return;
     }
+    if(p.kind==='brk'){
+      const have=brkRows().length, cells=p.rows.reduce((n,r)=>n+Object.keys(r.c).length,0), labs=p.rows.map(r=>r.l).filter(Boolean);
+      el.innerHTML=`<h3>📋 ${esc(p.name)} — ตารางเบรคภายใน / ผ้าตีกลับ / COMMENT ลูกค้า</h3>
+        <div class="hint">${p.title?`ชื่อรายงาน: ${esc(p.title)} · `:''}พบ ${p.rows.length} แถว (มีข้อความ ${cells} ช่อง) · แถวแรก "${esc(labs[0]||'')}" … แถวสุดท้าย "${esc(labs[labs.length-1]||'')}" · บันทึกแล้วดูได้ที่แท็บ "เบรค & COMMENT"</div>
+        ${p.auto?`<div class="hint">แถวสุดท้ายจะตั้งให้วันที่สิ้นสุดเลื่อนตาม "ข้อมูลถึงวันที่" เอง (เริ่ม ${brkD2(p.auto)}) — เปลี่ยนหรือยกเลิกได้ที่ใต้ตาราง</div>`:''}
+        ${have?`<div class="warn">⚠ ตารางในโปรแกรมมีอยู่แล้ว ${have} แถว — บันทึกจะ <b>แทนที่ทั้งตาราง</b> ด้วยข้อมูลจากไฟล์นี้ (ถ้าไม่ต้องการ กด ✕ มุมขวา)</div>`:''}
+        ${p.warns.map(w=>`<div class="warn">⚠ ${esc(w)}</div>`).join('')}`;
+      box.appendChild(el); return;
+    }
     if(p.kind==='sales'){
       const ms=Object.keys(p.months).sort();
       el.innerHTML=`<h3>💰 ${esc(p.name)} — นำเข้ารายงานยอดขาย & ส่งผ้า ย้อนหลัง</h3>
@@ -533,7 +544,7 @@ function renderPreview(){
 }
 $('#btnClearPv').onclick=()=>{Watch.markSeen(pending);pending=[];renderPreview();};
 $('#btnSaveAll').onclick=()=>{
-  let lastDate=null, n=0;
+  let lastDate=null, n=0, gotBrk=false;
   pending.forEach(p=>{
     if(p.kind==='year'){
       Object.entries(p.months).forEach(([ym,mo])=>{
@@ -558,6 +569,11 @@ $('#btnSaveAll').onclick=()=>{
         });
         n++;
       });
+    } else if(p.kind==='brk'){
+      const B={title:p.title||(S.brk&&S.brk.title)||BRK_TITLE, rows:{}}; let lastId=null;
+      p.rows.forEach((r,i)=>{ const R={o:i+1,c:r.c}; if(r.l) R.l=r.l; lastId='i'+String(i+1).padStart(4,'0'); B.rows[lastId]=R; });
+      if(p.auto&&lastId){ B.rows[lastId].from=p.auto; delete B.rows[lastId].l; }
+      S.brk=B; gotBrk=true; n++;
     } else if(p.kind==='order'||p.kind==='pend'||p.kind==='bill'){
       Object.entries(p.days).forEach(([d,vals])=>{
         const M=getMonth(ymOf(d)); const cur=M.d[d]||(M.d[d]={_src:{}}); cur._src=cur._src||{};
@@ -570,6 +586,7 @@ $('#btnSaveAll').onclick=()=>{
   if(lastDate){ fillMonthSel(ymOf(lastDate)); fillDaySel(lastDate); }
   renderQuick();
   toast(`บันทึกแล้ว ${n} รายการ`);
+  if(gotBrk) $('#tabs button[data-v="brk"]').click();
 };
 
 /* กรอกมือเร็ว (วันที่เลือกอยู่) */
@@ -1343,6 +1360,28 @@ function brkPaste(td,grid){
   grid.forEach((line,i)=>{ let id=rows[ri+i]&&rows[ri+i].id; if(!id){ id=brkNew(B,++o); }
     line.forEach((v,j)=>{ const k=BRK_KEYS[c0+j]; if(!k) return; brkSet(B,id,k,v); }); n++; });
   save(); renderBrk(); toast(`วางแล้ว ${n} แถว`); }
+/* นำเข้าจากไฟล์ Excel เดิมของผู้ใช้ (ชีตที่มีหัว เบรคภายใน | ผ้าตีกลับ | COMMENT ในแถวเดียวกัน) → {kind:'brk'} ให้หน้าอัปโหลดแสดงตัวอย่าง
+   วันที่ที่เป็นเซลล์วันที่ → "DD-Mon" (ปีไม่ใช้ บางเซลล์พิมพ์ปี พ.ศ.) · ที่เป็นข้อความเก็บตามที่พิมพ์ · แถววันที่ว่าง = รายการต่อของวันก่อนหน้า เก็บว่างไว้ตามเดิม · แถวที่ซ่อนใน Excel นำเข้าด้วย */
+function parseBrkSheet(rows,name,sn){
+  const want=BRK_GROUPS.map(g=>norm(g[1])); let hi=-1;
+  for(let i=0;i<Math.min(rows.length,15);i++){ const h=(rows[i]||[]).map(norm); if(want.every(w=>h.includes(w))){ hi=i; break; } }
+  if(hi<0) return null;
+  const H=rows[hi].map(norm), sub=(rows[hi+1]||[]).map(norm), start=want.map(w=>H.indexOf(w)), dc=Math.max(0,H.indexOf(norm('วันที่')));
+  const colOf={}, warns=[];
+  BRK_GROUPS.forEach(([g,gn,subs],gi)=>{ const from=start[gi], to=(gi+1<start.length&&start[gi+1]>from)?start[gi+1]:from+subs.length, used={};
+    for(let c=from;c<to;c++){ let si=subs.findIndex((n,i)=>!used[i]&&norm(n)===sub[c]); if(si<0&&!sub[c]&&!used[c-from]&&c-from<subs.length) si=c-from;
+      if(si<0){ if(sub[c]) warns.push(`คอลัมน์ "${rows[hi+1][c]}" ใต้ "${gn}" ไม่มีในตารางของโปรแกรม — ไม่ได้นำเข้า`); continue; }
+      used[si]=1; colOf[g+(si+1)]=c; } });
+  let title=''; for(let i=0;i<hi&&!title;i++){ const v=(rows[i]||[]).find(x=>typeof x==='string'&&/^\s*รายงาน/.test(x)); if(v) title=brkClean(v).replace(/\n+/g,' '); }
+  const out=[];
+  for(let r=hi+2;r<rows.length;r++){ const row=rows[r]||[]; let l=row[dc];
+    if(typeof l==='number'){ const d=XLSX.SSF.parse_date_code(l); l=d&&d.d&&d.m?`${pad2(d.d)}-${MON_EN[d.m-1]}`:String(l); }
+    l=brkClean(l); const c={}; Object.entries(colOf).forEach(([k,ci])=>{ const v=brkClean(row[ci]); if(v) c[k]=v; });
+    if(l||Object.keys(c).length) out.push({l,c}); }
+  if(!out.length) return {kind:'skip',name,msg:'พบหัวตารางเบรค / ตีกลับ / COMMENT แต่ไม่มีข้อมูลใต้หัวตาราง'};
+  const L=out[out.length-1].l, isRange=/^\s*\d{1,2}[\s-]*[A-Za-z]{3,}\s*-\s*\d{1,2}[\s-]*[A-Za-z]{3,}\s*$/.test(L);
+  return {kind:'brk',name:name+' · ชีต '+sn,title,rows:out,auto:isRange?brkParseStart(L,ymd(new Date())):null,warns};
+}
 function renderBrk(){
   const box=$('#brkBox'); const B=S.brk||{title:BRK_TITLE,rows:{}}; const asOf=brkAsOf();
   let rows=brkRows(); const last=rows[rows.length-1]; const open=last&&last.from?last:null;
@@ -1366,6 +1405,7 @@ function renderBrk(){
     <div class="row brkctl">
       <button class="btn sm pri" id="brkEv">＋ เพิ่มแถวเหตุการณ์วันที่</button><input type="date" class="btn sm" id="brkEvD" value="${asOf}">
       <button class="btn sm" id="brkBlank">＋ แถวว่าง</button>
+      <button class="btn sm" id="brkFile" title="นำเข้าทั้งตารางจากไฟล์ Excel เดิม (แทนที่ตารางในโปรแกรม — มีหน้าตรวจก่อนบันทึก)">นำเข้าจากไฟล์ Excel</button>
       <span class="hint">แสดง ${show.length} จาก ${total} แถว</span>
       <label class="hint brkauto"><input type="checkbox" id="brkAuto" ${open?'checked':''}> แถวสุดท้าย: ให้วันที่สิ้นสุดเลื่อนตาม "ข้อมูลถึงวันที่" เอง · เริ่มวันที่</label><input type="date" class="btn sm" id="brkFrom" value="${fromGuess}">
     </div>`;
@@ -1393,6 +1433,7 @@ function renderBrk(){
       delete brkMut().rows[id]; save(); renderBrk(); } });
   $('#brkN').onchange=()=>{ S.ui.brkN=+$('#brkN').value; save(); renderBrk(); };
   $('#brkEv').onclick=()=>{ const D=$('#brkEvD').value||asOf; const id=brkAddEvent(D); const tr=$(`#brkBox tr[data-id="${id}"]`); if(tr){ tr.scrollIntoView({block:'nearest'}); const c=tr.querySelector('td[data-k="c2"]'); if(c) c.focus(); } else toast(`เพิ่มแถว ${brkD1(D)} แล้ว — เลือก "ทุกแถว" เพื่อดู`); };
+  $('#brkFile').onclick=()=>{ $('#tabs button[data-v="upload"]').click(); $('#fileIn').click(); };
   $('#brkBlank').onclick=()=>{ const id=brkAddBlank(); const tr=$(`#brkBox tr[data-id="${id}"]`); if(tr){ const c=tr.querySelector('td[data-k="l"]'); if(c) c.focus(); } };
   $('#brkAuto').onchange=()=>{ const Bm=brkMut(), rs=brkRows(), L=rs[rs.length-1], from=$('#brkFrom').value||asOf;
     if($('#brkAuto').checked){ if(L&&!L.from){ const R=Bm.rows[L.id]; R.from=from; delete R.l; } else if(!L) brkNew(Bm,1,{from}); }

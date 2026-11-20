@@ -83,6 +83,22 @@ async def main():
     # เปิดใหม่ -> ข้อมูลยังอยู่
     n=len(json.loads(await rows())); await pg.reload(); await pg.wait_for_timeout(600); await pg.click('#tabs button[data-v="brk"]'); await pg.wait_for_timeout(300)
     chk('reload keeps data', len(json.loads(await rows()))==n and await pg.evaluate("document.querySelectorAll('#brkBox tr[data-id]').length")==15)
+    # นำเข้าทั้งตารางจากไฟล์ Excel (สร้างไฟล์ตัวอย่างในหน้าเว็บด้วย SheetJS — ไม่ใช้ข้อมูลจริง)
+    await pg.evaluate('''async(y)=>{
+      const aoa=[['รายงานตัวอย่าง ลูกค้า ข'],['วันที่','เบรคภายใน',null,null,null,'ผ้าตีกลับ',null,null,null,'COMMENT',null,null,null,null],
+        [null,'ย้อม','ตกแต่ง','SALE','QA','ย้อม','ตกแต่ง','SALE','QA','ย้อม','ตกแต่ง','SALE','LAB','QA'],
+        [0,'ก1'],[null,'ก2'],['29-ม.ค. - 30-ม.ค.',null,null,null,null,null,'ข'],[null,null,null,null,null,null,null,null,null,null,null,null,123],['1 Jan - 5 Jan',null,null,null,null,null,null,null,null,null,null,null,null,'ค']];
+      const ws=XLSX.utils.aoa_to_sheet(aoa); ws['A4']={t:'n',v:45685,z:'d-mmm'};          // 28 ม.ค. 2025 เป็นเซลล์วันที่
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'ตัวอย่าง');
+      const f=new File([XLSX.write(wb,{type:'array',bookType:'xlsx'})],'ตารางตัวอย่าง.xlsx'); await handleFiles([f]); }''')
+    await pg.click('#tabs button[data-v="upload"]'); await pg.wait_for_timeout(300)
+    card=await pg.inner_text('#pvList'); kinds=await pg.evaluate("pending.map(p=>p.kind).join()")
+    chk('Excel file recognised: preview card with row count + replace warning', kinds=='brk' and 'พบ 5 แถว' in card and 'แทนที่ทั้งตาราง' in card and 'เลื่อนตาม' in card, kinds+' | '+card[:260].replace('\n',' '))
+    await pg.click('#btnSaveAll'); await pg.wait_for_timeout(500)
+    r=json.loads(await rows()); yr=td.year
+    chk('import: date cell -> DD-Mon, blank-date rows kept, Thai label kept, number -> text', [q[0] for q in r]==['28-Jan','','29-ม.ค. - 30-ม.ค.','',''] and r[0][2]=={'a1':'ก1'} and r[1][2]=={'a1':'ก2'} and r[2][2]=={'b2':'ข'} and r[3][2]=={'c4':'123'}, r)
+    chk('import: last range row set to auto-extend from its start date; title taken; switched to the tab', r[4][1]==f'{yr}-01-01' and r[4][2]=={'c5':'ค'} and await pg.evaluate("S.brk.title")=='รายงานตัวอย่าง ลูกค้า ข' and await pg.evaluate("curView")=='brk', [r[4], await pg.evaluate("curView")])
+    l=await labels(); chk('import: last row label follows as-of date', l[-1].startswith('1 Jan - ') and l[-1]!='1 Jan - 5 Jan', l[-1])
     chk('no page errors', not errs, errs)
     await b.close()
   print('ALL PASS' if all(OK) else 'SOME FAILED')
