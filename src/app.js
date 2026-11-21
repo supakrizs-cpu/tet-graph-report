@@ -1342,6 +1342,24 @@ function brkAddEvent(D){
   const id=brkNew(B,o+1,{l:brkD1(D)});
   if(auto) brkNew(B,o+2,{from:brkShift(D,1)});          // ช่วงถัดไปเริ่มวันรุ่งขึ้น — จะโผล่เองเมื่อ "ข้อมูลถึงวันที่" ไปถึง
   save(); renderBrk(); return id; }
+/* ลบแถวโดยไม่ให้วันที่ขาดช่วง (21 พ.ย.: ผู้ใช้กดเพิ่มเหตุการณ์วันที่ 19 แล้วลบแถว 19-Nov ที่ว่างทิ้ง → เหลือ "10 Oct - 18 Nov" ตามด้วย 20-Nov วันที่ 19 หาย)
+   - ลบแถววันเดียว D ที่แถวก่อนหน้าจบ D-1 พอดี: ถ้าแถวถัดไปเป็นแถวเลื่อนเองที่ว่างและเริ่ม D+1 (= ผลของ "เพิ่มแถวเหตุการณ์") → ย้อนกลับทั้งหมด
+     (แถวก่อนหน้ากลับมาเลื่อนเอง ลบแถวเลื่อนเองทิ้ง) · ไม่ใช่ → ขยายแถวก่อนหน้าให้ถึง D
+   - ลบแถวเลื่อนเองที่เริ่ม F และแถวก่อนหน้าจบ F-1 พอดี → แถวก่อนหน้ากลับมาเลื่อนเองแทน
+   เทียบด้วยข้อความที่โปรแกรมสร้างเอง (brkSpan/brkD1) เท่านั้น — ป้ายที่ผู้ใช้พิมพ์เองรูปแบบอื่นไม่แตะ */
+function brkDel(id){
+  const B=brkMut(), rows=brkRows(), i=rows.findIndex(r=>r.id===id); if(i<0) return;
+  const X=rows[i], P=rows[i-1], N=rows[i+1], asOf=brkAsOf();
+  const startOf=r=>r&&!r.from&&r.l?brkParseStart(r.l,asOf):null;
+  const endsAt=(r,d)=>{ const s0=startOf(r); return s0&&s0<=d&&r.l===brkSpan(s0,d)?s0:null; };
+  delete B.rows[id];
+  if(X.from){ const s0=P&&endsAt(P,brkShift(X.from,-1)); if(s0){ const Q=B.rows[P.id]; Q.from=s0; delete Q.l; } return; }
+  const D=startOf(X); if(!D||X.l!==brkD1(D)||!P) return;
+  const s0=endsAt(P,brkShift(D,-1)); if(!s0) return;
+  const Q=B.rows[P.id];
+  if(N&&N.from===brkShift(D,1)&&!Object.keys(N.c||{}).length&&i+1===rows.length-1){ Q.from=s0; delete Q.l; delete B.rows[N.id]; }
+  else Q.l=brkSpan(s0,D);
+}
 function brkAddBlank(beforeId){
   const B=brkMut(), rows=brkRows(); let o;
   const at=beforeId?rows.findIndex(r=>r.id===beforeId):(rows.length&&rows[rows.length-1].from?rows.length-1:-1);
@@ -1430,7 +1448,7 @@ function renderBrk(){
     if(b.dataset.ins!=null){ brkAddBlank(id); return; }
     if(b.dataset.del!=null){ const R=(S.brk&&S.brk.rows||{})[id]; if(!R) return;
       if(brkHas(R)&&!b.dataset.arm){ b.dataset.arm='1'; b.textContent='ลบ?'; b.classList.add('arm'); setTimeout(()=>{ if(b.isConnected){ delete b.dataset.arm; b.textContent='✕'; b.classList.remove('arm'); } },3000); return; }
-      delete brkMut().rows[id]; save(); renderBrk(); } });
+      brkDel(id); save(); renderBrk(); } });
   $('#brkN').onchange=()=>{ S.ui.brkN=+$('#brkN').value; save(); renderBrk(); };
   $('#brkEv').onclick=()=>{ const D=$('#brkEvD').value||asOf; const id=brkAddEvent(D); const tr=$(`#brkBox tr[data-id="${id}"]`); if(tr){ tr.scrollIntoView({block:'nearest'}); const c=tr.querySelector('td[data-k="c2"]'); if(c) c.focus(); } else toast(`เพิ่มแถว ${brkD1(D)} แล้ว — เลือก "ทุกแถว" เพื่อดู`); };
   $('#brkFile').onclick=()=>{ $('#tabs button[data-v="upload"]').click(); $('#fileIn').click(); };

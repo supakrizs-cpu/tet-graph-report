@@ -53,6 +53,33 @@ async def main():
     # เหตุการณ์ซ้ำวันเดียวกับวันเริ่มช่วง (ช่วงยังว่าง) -> ไม่ทิ้งแถวช่วงว่างไว้
     await pg.fill('#brkEvD',D(17)); await pg.click('#brkEv'); await pg.wait_for_timeout(300); await pg.keyboard.press('Escape')
     await day(18); l=await labels(); chk('event on the first day of an empty range replaces it', l[-3:]==[f'16-{mon}',f'17-{mon}',f'18-{mon}'], l[-3:])
+    # ลบแถวเหตุการณ์ที่เพิ่งเพิ่ม (ว่าง) -> ย้อนกลับ ไม่ให้วันที่ขาด (บั๊กที่ผู้ใช้เจอ 21 พ.ย.)
+    snapBefore=await rows(); lb=await labels()
+    await pg.fill('#brkEvD',D(18)); await pg.click('#brkEv'); await pg.wait_for_timeout(300); await pg.keyboard.press('Escape')
+    await pg.select_option('#selDay',D(19)); await pg.wait_for_timeout(250)
+    l=await labels(); chk('add event 18 then as-of 19: range closed at 17, 18 row, 19 auto row', l[-3:]==[f'17-{mon}',f'18-{mon}',f'19-{mon}'], l[-3:])
+    for _ in range(2): await pg.click('#brkBox tr[data-id]:nth-last-of-type(2) [data-del]'); await pg.wait_for_timeout(250)   # แถวมีวันที่ = ต้องกด 2 ครั้ง
+    l=await labels(); r=json.loads(await rows())
+    chk('delete that empty event row -> undone: previous range auto again, no gap, no extra row', l[-1]==f'17 {mon} - 19 {mon}' and r[-1][1]==D(17) and r[-2][0]==f'16-{mon}' and f'18-{mon}' not in [q[0] for q in r], [l[-2:],r[-2:]])
+    await day(18)
+    # ลบแถวเลื่อนเองที่ว่าง -> แถวก่อนหน้า (วันเดียว) กลับมาเลื่อนเอง
+    await pg.fill('#brkEvD',D(18)); await pg.click('#brkEv'); await pg.wait_for_timeout(300); await pg.keyboard.type('เหตุ 18'); await pg.keyboard.press('Enter'); await pg.wait_for_timeout(200)
+    await day(19); l=await labels(); chk('event 18 with text + auto 19', l[-2:]==[f'18-{mon}',f'19-{mon}'], l[-2:])
+    await pg.click('#brkBox tr[data-id]:last-of-type [data-del]'); await pg.wait_for_timeout(300)   # แถวเลื่อนเองที่ว่าง = ลบทันที
+    l=await labels(); r=json.loads(await rows())
+    chk('delete the empty auto row -> event row extends itself', l[-1]==f'18 {mon} - 19 {mon}' and r[-1][1]==D(18) and r[-1][2]=={'c2':'เหตุ 18'}, [l[-2:],r[-1]])
+    # ลบแถววันเดียวกลางตาราง -> แถวช่วงก่อนหน้าขยายครอบวันนั้น
+    await pg.select_option('#brkN','0'); await pg.wait_for_timeout(200)
+    idx=(await labels()).index(f'16-{mon}')+1
+    await pg.click(f'#brkBox tr[data-id]:nth-of-type({idx+3}) [data-del]'); await pg.wait_for_timeout(200)
+    await pg.click(f'#brkBox tr[data-id]:nth-of-type({idx+3}) [data-del]'); await pg.wait_for_timeout(300)
+    l=await labels(); chk('delete a one-day row in the middle -> previous range now covers it', f'10 {mon} - 16 {mon}' in l and f'16-{mon}' not in l, l[-4:])
+    await pg.select_option('#brkN','15'); await pg.wait_for_timeout(200)
+    # เหตุการณ์ 16 ถูกลบไปแล้ว: สร้างแถว 17/18 ใหม่ให้สถานะเหมือนเดิมสำหรับขั้นต่อไป
+    await day(18); await pg.uncheck('#brkAuto'); await pg.wait_for_timeout(200)
+    await pg.click('#brkBlank'); await pg.wait_for_timeout(200)
+    await pg.click('#brkBox tr[data-id]:last-of-type td[data-k="l"]'); await pg.keyboard.type(f'18-{mon}'); await pg.keyboard.press('Enter'); await pg.wait_for_timeout(200)
+    await pg.check('#brkAuto'); await pg.fill('#brkFrom',D(18)); await pg.dispatch_event('#brkFrom','change'); await pg.wait_for_timeout(250)
     # ยกเลิกเลื่อนเอง -> กลายเป็นข้อความ แก้เองได้
     await pg.uncheck('#brkAuto'); await pg.wait_for_timeout(250); r=json.loads(await rows())
     chk('auto off: label frozen as text', r[-1][0]==f'18-{mon}' and r[-1][1]=='' and await pg.evaluate("document.querySelector('#brkBox tr[data-id]:last-of-type td.bd').isContentEditable"), r[-1])
